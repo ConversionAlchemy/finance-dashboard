@@ -342,6 +342,16 @@ function taxFor(e, rg) {
   const t = ent.rate == null ? ukTax(p) : Math.max(0, p) * (ent.rate || 0);
   return t * rate(rg.to.slice(0, 7), e === "uk ltd" ? "GBP" : "EUR", dash.cur);
 }
+function taxOwed(d) {
+  let owed = 0;
+  scopeEntities().filter(e => e !== "personal").forEach(e => {
+    const ye = (data.ent[e] || {}).ye || 12, cur = fyStartFor(d, ye), prev = addMonths(cur, -12);
+    const accrued = taxFor(e, { from: iso(prev), to: iso(monthEnd(addMonths(cur, -1))) }) + taxFor(e, { from: iso(cur), to: d });
+    const paid = -total(sel({ from: iso(prev), to: d }, r => r.group === "tax", [e]));
+    owed += Math.max(0, accrued - paid);
+  });
+  return owed;
+}
 function figures(rg) {
   const rows = sel(rg);
   const income = total(rows.filter(isIncome));
@@ -513,10 +523,12 @@ function renderMonthChart(rg) {
   const series = [];
   for (let k = 0; k < N; k++) {
     const m = addMonths(start, k), x = { from: iso(m), to: iso(monthEnd(m)) }, rows = sel(x);
-    series.push({ m: iso(m).slice(0, 7), mi: m.getMonth(), label: MONTHS[m.getMonth()], started: x.from <= today, inc: total(rows.filter(isIncome)), cost: -total(rows.filter(isCost)) });
+    // last year's revenue for the same month, drawn as a hatched shadow behind this year's bar (not on all time)
+    const lyM = addMonths(m, -12), ly = dash.period === "all" ? null : total(sel({ from: iso(lyM), to: iso(monthEnd(lyM)) }).filter(isIncome));
+    series.push({ m: iso(m).slice(0, 7), mi: m.getMonth(), label: MONTHS[m.getMonth()], started: x.from <= today, inc: total(rows.filter(isIncome)), cost: -total(rows.filter(isCost)), ly });
   }
   const bud = dash.scope === "personal" ? monthlyBudget() : null;
-  const max = niceMax(Math.max(1, bud ? bud.spend : 0, ...series.map(s => Math.max(s.inc, s.cost))));
+  const max = niceMax(Math.max(1, bud ? bud.spend : 0, ...series.map(s => Math.max(s.inc, s.cost, s.ly || 0))));
   const chart = el("div");
   host.replaceChildren(chart);
   const fyStart = iso(start), fyEnd = iso(monthEnd(addMonths(start, N - 1))), fyStartMonth = scopeYe() % 12;
@@ -524,17 +536,19 @@ function renderMonthChart(rg) {
   const laterGroups = dated.filter(g => g.when > fyEnd), padR = 12;
   svgBox(chart, 250, Wd => {
     const L = 40, base = 190, y = v => base - v / max * 180, slot = (Wd - L - padR) / N, many = N > 18; let s = "";
+    s += '<defs><pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6"><path d="M0 0L6 6M6 0L0 6" style="stroke:var(--hatch)" stroke-width="0.9"/></pattern></defs>';
     [0, 0.25, 0.5, 0.75, 1].forEach(t => { const v = max * t; s += '<line x1="' + L + '" x2="' + (Wd - padR) + '" y1="' + y(v) + '" y2="' + y(v) + '" style="stroke:' + (t ? "var(--grid)" : "currentColor") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (t ? short(v) : "0") + "</text>"; });
     series.forEach((d, k) => {
       const x = L + k * slot + slot * 0.14, bw = slot * 0.34, on = d.m >= rg.from.slice(0, 7) && d.m <= rg.to.slice(0, 7);
-      s += '<g opacity="' + (on ? 1 : 0.3) + '"><rect x="' + x + '" y="' + y(d.inc) + '" width="' + bw + '" height="' + (base - y(d.inc)) + '" fill="' + GREEN + '"/>'
+      const ghost = d.ly > 0.5 ? '<rect x="' + (x - 3) + '" y="' + y(d.ly) + '" width="' + (bw + 6) + '" height="' + (base - y(d.ly)) + '" fill="url(#hatch)"/>' : "";
+      s += '<g opacity="' + (on ? 1 : 0.3) + '">' + ghost + '<rect x="' + x + '" y="' + y(d.inc) + '" width="' + bw + '" height="' + (base - y(d.inc)) + '" fill="' + GREEN + '"/>'
         + '<rect x="' + (x + bw + 2) + '" y="' + y(d.cost) + '" width="' + bw + '" height="' + (base - y(d.cost)) + '" fill="' + RED + '"/></g>'
         + (many ? (d.mi === 0 ? '<text x="' + (L + k * slot) + '" y="' + (base + 20) + '" ' + F + ">" + d.m.slice(0, 4) + "</text>" : "") : '<text x="' + x + '" y="' + (base + 20) + '" ' + F + ">" + (slot < 44 ? d.label[0] : d.label) + "</text>");
       // a dotted line where each financial year starts
       if (k && d.mi === fyStartMonth) { const lx = L + k * slot; s += '<line x1="' + lx + '" x2="' + lx + '" y1="4" y2="' + base + '" style="stroke:var(--fyline)" stroke-dasharray="2 3"/><text x="' + (lx + 4) + '" y="40" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:var(--grey)" font-style="italic">' + fyLabel(new Date(d.m + "-01T00:00:00"), scopeYe()) + "</text>"; }
       if (bud && slot >= 44 && d.started) { const u = bud.spend - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:' + (u < 0 ? RTEXT : GTEXT) + '">' + (u < 0 ? "+" : "−") + short(Math.abs(u)) + "</text>"; }
       else if (slot >= 44 && d.started && (d.inc || d.cost)) { const n = d.inc - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:' + (n < 0 ? RTEXT : GTEXT) + '">' + (n < 0 ? "" : "+") + short(n) + "</text>"; }
-      s += '<rect class="hit" x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="245" fill="transparent" data-month="' + d.m + '" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|" + words().rev + " " + money(d.inc) + "|" + words().cost + " " + money(d.cost) + "|" + (d.inc - d.cost < 0 ? (dash.scope === "personal" ? "short " : "loss ") : words().keep + " ") + money(Math.abs(d.inc - d.cost)) + (bud ? "|budget " + money(bud.spend) + ", " + (d.cost > bud.spend ? "over by " + money(d.cost - bud.spend) : money(bud.spend - d.cost) + " under") : "")) + '"/>';
+      s += '<rect class="hit" x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="245" fill="transparent" data-month="' + d.m + '" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|" + words().rev + " " + money(d.inc) + "|" + words().cost + " " + money(d.cost) + "|" + (d.inc - d.cost < 0 ? (dash.scope === "personal" ? "short " : "loss ") : words().keep + " ") + money(Math.abs(d.inc - d.cost)) + (d.ly != null ? "|last year " + money(d.ly) + (d.ly > 0.5 ? " (" + (d.inc >= d.ly ? "+" : "−") + pct(Math.abs(d.inc - d.ly) / d.ly) + ")" : "") : "") + (bud ? "|budget " + money(bud.spend) + ", " + (d.cost > bud.spend ? "over by " + money(d.cost - bud.spend) : money(bud.spend - d.cost) + " under") : "")) + '"/>';
     });
     // your monthly spending budget as a dashed line across the chart
     if (bud) s += '<line x1="' + L + '" x2="' + (Wd - padR) + '" y1="' + y(bud.spend) + '" y2="' + y(bud.spend) + '" style="stroke:var(--rtext)" stroke-dasharray="5 4" stroke-width="1.5"/>';
@@ -567,6 +581,7 @@ function renderMonthChart(rg) {
     return s;
   });
   const lg = el("div", "legend"); lg.innerHTML = '<span><span class="sw" style="background:' + GREEN + '"></span>' + words().rev + '</span><span><span class="sw" style="background:' + RED + '"></span>' + words().cost + "</span>";
+  if (dash.period !== "all") lg.insertAdjacentHTML("beforeend", '<span><span class="sw hatch"></span>' + words().rev + ' last year</span>');
   if (bud) lg.insertAdjacentHTML("beforeend", '<span><span class="dash-key"></span>budget ' + esc(money(bud.spend)) + " a month</span>");
   if (dated.length) {
     lg.insertAdjacentHTML("beforeend", '<span><span class="dot"></span>to submit</span><span><span class="dot filed"></span>filed</span>');
@@ -690,24 +705,41 @@ function renderCash(rg) {
   list.append(lead("all accounts", money(balance(to)), { sel: !dash.acct, onclick: () => { dash.acct = null; renderCash(rg); } }));
   items.forEach(i => list.append(lead(i.label, money(i.v), { sel: i.label === dash.acct, onclick: () => { dash.acct = i.label; renderCash(rg); } })));
 
-  const start = new Date(dash.fy + "T00:00:00"), today = iso(new Date()), pts = [];
-  for (let k = 0; k < 12; k++) { const m = monthEnd(addMonths(start, k)), d = iso(m); pts.push({ label: MONTHS[m.getMonth()], v: d.slice(0, 7) <= today.slice(0, 7) ? balance(d < today ? d : today, dash.acct ? r => r.account === dash.acct : null) : null }); }
+  // month-end cash for the year, the same months a year earlier, and (for the companies as a whole) cash after the tax owed
+  const start = new Date(dash.fy + "T00:00:00"), today = iso(new Date()), pts = [], fn = dash.acct ? r => r.account === dash.acct : null;
+  const firstDate = (data.rows.find(r => !r.synthetic && scopeEntities().includes(r.entity)) || {}).date || "9999";
+  const showTax = !dash.acct && dash.scope !== "personal";
+  for (let k = 0; k < 12; k++) {
+    const m = monthEnd(addMonths(start, k)), d = iso(m), dd = d < today ? d : today, lyD = iso(monthEnd(addMonths(m, -12)));
+    const v = d.slice(0, 7) <= today.slice(0, 7) ? balance(dd, fn) : null;
+    pts.push({ label: MONTHS[m.getMonth()], y: m.getFullYear(), v, ly: lyD >= firstDate ? balance(lyD, fn) : null, free: v != null && showTax ? v - taxOwed(dd) : null });
+  }
   const box = el("div", "chart");
   detail.replaceChildren(el("i", "mt", dash.acct || "all accounts"), box);
-  const known = pts.filter(p => p.v != null).map(p => p.v);
-  const hi = niceMax(Math.max(1, ...known)), lo = Math.min(0, ...known) < 0 ? -niceMax(-Math.min(0, ...known)) : 0;
+  const vals = pts.flatMap(p => [p.v, p.ly, p.free]).filter(v => v != null);
+  if (!vals.length) return;
+  // a scale that fits the values instead of starting at zero, so real movement shows
+  const minV = Math.min(...vals), maxV = Math.max(...vals), span = Math.max(1, maxV - minV), step = niceMax(span / 4);
+  const lo = Math.floor((minV - span * 0.08) / step) * step, hi = Math.ceil((maxV + span * 0.08) / step) * step;
   svgBox(box, 200, W => {
     const L = 44, T = 10, B = 170, y = v => B - (v - lo) / (hi - lo) * (B - T), slot = (W - L - 20) / 11; let s = "";
-    const ticks = lo < 0 ? [lo, 0, hi] : [0, hi * 0.25, hi * 0.5, hi * 0.75, hi];
-    ticks.forEach(v => { s += '<line x1="' + L + '" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" style="stroke:' + (v === 0 ? "currentColor" : "var(--grid)") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (v ? short(v) : "0") + "</text>"; });
-    const line = pts.map((p, k) => p.v == null ? null : (L + k * slot).toFixed(1) + "," + y(p.v).toFixed(1)).filter(Boolean);
-    if (line.length > 1) s += '<polyline points="' + line.join(" ") + '" fill="none" stroke="' + GREEN + '" stroke-width="2"/>';
+    for (let v = lo; v <= hi + 0.5; v += step) s += '<line x1="' + L + '" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" style="stroke:' + (v === lo ? "currentColor" : "var(--grid)") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + short(v) + "</text>";
+    const path = key => pts.map((p, k) => p[key] == null ? null : (L + k * slot).toFixed(1) + "," + y(p[key]).toFixed(1)).filter(Boolean);
+    const ly = path("ly"), free = path("free"), now = path("v");
+    if (ly.length > 1) s += '<polyline points="' + ly.join(" ") + '" fill="none" style="stroke:var(--hatch)" stroke-width="2" stroke-dasharray="5 4"/>';
+    if (free.length > 1) s += '<polyline points="' + free.join(" ") + '" fill="none" stroke="' + GREEN + '" stroke-width="1.5" stroke-dasharray="2 3"/>';
+    if (now.length > 1) s += '<polyline points="' + now.join(" ") + '" fill="none" stroke="' + GREEN + '" stroke-width="2"/>';
     pts.forEach((p, k) => {
       s += '<text x="' + (L + k * slot) + '" y="' + (B + 22) + '" ' + F + ' text-anchor="middle">' + p.label + "</text>";
-      if (p.v != null) s += '<rect x="' + (L + k * slot - slot / 2) + '" y="0" width="' + slot + '" height="' + B + '" fill="transparent" data-tip="' + esc(p.label + "|" + money(p.v)) + '"/>';
+      const tip = [p.label + " " + p.y, p.v != null ? "cash " + money(p.v) : "", p.free != null ? "after tax owed " + money(p.free) : "", p.ly != null ? "a year earlier " + money(p.ly) : ""].filter(Boolean).join("|");
+      s += '<rect x="' + (L + k * slot - slot / 2) + '" y="0" width="' + slot + '" height="' + B + '" fill="transparent" data-tip="' + esc(tip) + '"/>';
     });
     return s;
   });
+  const lg = el("div", "legend");
+  lg.innerHTML = '<span><span class="ln" style="border-top:2px solid ' + GREEN + '"></span>cash</span>' + (showTax ? '<span><span class="ln" style="border-top:2px dotted ' + GREEN + '"></span>after tax owed</span>' : "") + '<span><span class="ln" style="border-top:2px dashed var(--hatch)"></span>a year earlier</span>';
+  box.after(lg);
+
 }
 
 
