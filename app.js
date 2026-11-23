@@ -28,7 +28,7 @@ let view = "dashboard";
 let data = null;       // parsed model used by the dashboard
 const dash = { mode: "business", co: "companies", scope: "companies", period: "fy", cur: "USD", fy: null, month: null, stream: null, cat: null, acct: null, allTasks: false };
 const COMPANIES = [["companies", "both companies"], ["ie ltd", "irish company"], ["uk ltd", "uk company"]];
-const PERIODS = [["all", "all time"], ["3m", "last 3 months"], ["1m", "last month"]];
+const PERIODS = [["all", "all time"], ["fy", "this year"], ["3m", "last 3 months"], ["1m", "last month"]];
 const FX_FALLBACK = { GBPEUR: 1.17, USDEUR: 0.92, EURGBP: 0.855, USDGBP: 0.78 };
 const TX_CLEAR = { text: "", entity: "", entities: null, category: "", account: "", group: "", only: null, from: "", to: "" };
 const txFilter = Object.assign({}, TX_CLEAR);
@@ -438,7 +438,14 @@ function renderDashboard() {
   sp.onchange = () => { dash.co = sp.value; dash.fy = null; dash.flow = dash.acct = null; renderDashboard(); };
   $("#coBox").hidden = dash.mode === "personal";
   const pp = $("#periodPick"); pp.innerHTML = "";
-  PERIODS.forEach(([k, t]) => { const b = el("button", null, t); b.type = "button"; b.setAttribute("aria-pressed", dash.period === k && !dash.month); b.onclick = () => { dash.period = k; dash.month = null; renderDashboard(); }; pp.append(b); });
+  // "this year" is the financial year we're in now; the arrows and the year list step to other years
+  const curFy = iso(fyStartFor(iso(new Date()), scopeYe()));
+  PERIODS.forEach(([k, t]) => {
+    const b = el("button", null, t); b.type = "button";
+    b.setAttribute("aria-pressed", dash.period === k && !dash.month && (k !== "fy" || dash.fy === curFy));
+    b.onclick = () => { dash.period = k; dash.month = null; if (k === "fy" && fys.some(f => f.start === curFy)) dash.fy = curFy; renderDashboard(); };
+    pp.append(b);
+  });
   const yp = $("#yearPick"); yp.innerHTML = "";
   fys.forEach(f => { const o = el("option", null, f.label); o.value = f.start; o.selected = f.start === dash.fy; yp.append(o); });
   yp.onchange = () => { dash.fy = yp.value; dash.period = "fy"; dash.month = null; renderDashboard(); };
