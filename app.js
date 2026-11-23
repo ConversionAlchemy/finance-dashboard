@@ -536,7 +536,7 @@ function renderMonthChart(rg) {
   if (bud) lg.insertAdjacentHTML("beforeend", '<span><span class="dash-key"></span>budget ' + esc(money(bud.spend)) + " a month</span>");
   if (dated.length) {
     const later = dated.filter(g => g.when > fyEnd), n = later.reduce((a, g) => a + g.items.length, 0);
-    lg.insertAdjacentHTML("beforeend", '<span><span class="dot"></span>filing target</span>' + (n ? '<span data-tip="' + esc(later.map(g => g.tip).join("| |")) + '">→ ' + n + " later</span>" : ""));
+    lg.insertAdjacentHTML("beforeend", '<span><span class="dot"></span>submit</span>' + (n ? '<span data-tip="' + esc(later.map(g => g.tip).join("| |")) + '">→ ' + n + " later</span>" : ""));
   }
   lg.insertAdjacentHTML("beforeend", '<span class="range">' + esc(longDate(rg.from) + " – " + longDate(rg.to)) + "</span>");
   host.append(lg);
@@ -699,13 +699,13 @@ function upcomingFilings() {
   const gs = [...groups.values()].sort((a, b) => a.when < b.when ? -1 : 1);
   gs.forEach(g => {
     g.soon = g.late || (new Date(g.when + "T00:00:00") - new Date(today + "T00:00:00")) / 864e5 <= 30;
-    g.tip = g.items.map(i => { const e = filingEstimate(i); return i.name + " (" + i.who + ")|" + (g.late ? "target passed " + longDate(i.target) : "target " + longDate(i.target || i.deadline)) + (i.deadline ? "|deadline " + longDate(i.deadline) : "") + (e != null && e > 0.5 ? "|about " + money(e) + " tax" : "") + (i.notes ? "|" + i.notes : ""); }).join("| |");
+    g.tip = g.items.map(i => { const e = filingEstimate(i); return i.name + " (" + i.who + ")|" + submitText(i) + (i.deadline ? "|due " + longDate(i.deadline) : "") + (e != null && e > 0.5 ? "|about " + money(e) + " tax" : "") + (i.notes ? "|" + i.notes : ""); }).join("| |");
   });
   return gs;
 }
-// filings: one item under another, with a status you can change. ticking means "filed, to confirm", never "done":
-// an item is only done once its confirmation is found, so a wrong tick costs nothing
-const FILING_STATUS = ["coming up", "to do", "filed, to confirm", "done"];
+// filings: two columns, the filing and when to submit it on the left, its status on the right. the legal due date is on hover
+const FILING_STATUS = [["coming up", "coming up"], ["to do", "to do"], ["filed, to confirm", "filed"], ["done", "done"]];
+function submitText(f, today = iso(new Date())) { const d = f.target || f.deadline; return !d ? "" : d < today ? "submit now" : "submit " + longDate(d); }
 function renderFilings() {
   const box = $("#filingsBox"), fl = data.filings, today = iso(new Date()), ents = scopeEntities();
   box.replaceChildren(el("b", "hd", "filings"));
@@ -713,19 +713,15 @@ function renderFilings() {
   const key = f => f.target || f.deadline || "9999";
   items.sort((a, b) => key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0);
   if (!items.length) box.append(el("p", "empty", "nothing to file"));
-  const save = (f, v) => { f.status = v; writeCell(fl, f.row, f.col, v).then(() => { if (TEST) fl.display[f.row][f.col] = v; renderFilings(); }); };
   items.forEach(f => {
-    const row = el("div", "filing"), filed = f.status === "filed, to confirm";
-    const top = el("div", "filing-top"), tick = el("button", "tick" + (filed ? " on" : "")); tick.type = "button"; tick.setAttribute("aria-label", "filed");
-    tick.onclick = () => save(f, filed ? "to do" : "filed, to confirm");
-    top.append(tick, el("span", null, f.name + (ents.length > 1 ? " (" + f.who + ")" : "")));
-    row.append(top);
-    const when = f.target || f.deadline, soon = when && (when < today || (new Date(when + "T00:00:00") - new Date(today + "T00:00:00")) / 864e5 <= 31);
-    const dates = [f.target ? (f.target < today ? "target passed " + longDate(f.target) : "target " + longDate(f.target)) : "", f.deadline ? "due " + longDate(f.deadline) : ""].filter(Boolean).join(", ");
-    if (dates) row.append(el("i", "filing-dates" + (soon && !filed ? " late" : ""), dates));
-    const st = el("select", "status"); FILING_STATUS.forEach(v => st.append(new Option(v, v))); st.value = FILING_STATUS.includes(f.status) ? f.status : "coming up";
-    st.onchange = () => save(f, st.value);
-    row.append(st);
+    const row = el("div", "filing"), left = el("div"), when = f.target || f.deadline, filed = f.status === "filed, to confirm";
+    const soon = when && (when < today || (new Date(when + "T00:00:00") - new Date(today + "T00:00:00")) / 864e5 <= 31);
+    left.append(el("span", null, f.name + (ents.length > 1 ? " (" + f.who + ")" : "")));
+    if (when && !filed) left.append(el("i", "filing-dates" + (soon ? " late" : ""), submitText(f, today)));
+    row.dataset.tip = [f.name, f.deadline ? "due " + longDate(f.deadline) : "", f.notes].filter(Boolean).join("|");
+    const st = el("select", "status"); FILING_STATUS.forEach(([v, l]) => st.append(new Option(l, v))); st.value = FILING_STATUS.some(x => x[0] === f.status) ? f.status : "coming up";
+    st.onchange = () => { f.status = st.value; writeCell(fl, f.row, f.col, st.value).then(() => { if (TEST) fl.display[f.row][f.col] = st.value; renderFilings(); }); };
+    row.append(left, st);
     box.append(row);
   });
   if (fl) { const b = el("button", "more", "all filings"); b.type = "button"; b.onclick = () => showView(fl.name); box.append(b); }
