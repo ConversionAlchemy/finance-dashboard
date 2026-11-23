@@ -547,7 +547,7 @@ function renderFlow(rg) {
   list.append(el("i", "mt group", "costs"));
   list.append(lead("all costs", money(-total(costRows)), { sel: isSel("cost", null), onclick: () => go("cost", null) }));
   cats.slice(0, 6).forEach(c => list.append(lead(catName(c.label), money(-c.v), { sel: isSel("cost", c.label), onclick: () => go("cost", c.label) })));
-  const rest = cats.slice(6); if (rest.length) list.append(lead("everything else", money(-rest.reduce((a, c) => a + c.v, 0)), { onclick: () => goTransactions({ group: "cost" }) }));
+  const rest = cats.slice(6); if (rest.length) list.append(lead("everything else", money(-rest.reduce((a, c) => a + c.v, 0)), { onclick: () => openTx({ group: "cost", notIn: cats.slice(0, 6).map(c => c.label) }, "everything else") }));
 
   // what the chart shows for the selection
   let title, items, kind;
@@ -571,7 +571,7 @@ function renderFlow(rg) {
     const sum = -shown.reduce((a, p) => a + p.v, 0);
     title = f.key ? catName(f.key) : "all costs";
     items = shown.map(it => ({ label: f.key ? it.label : catName(it.label), v: -it.v, value: money(-it.v) + pctOf(-it.v, sum),
-      onclick: it.others ? () => goTransactions(f.key ? { category: f.key } : { group: "cost" }) : f.key ? () => goTransactions({ category: f.key, text: it.label }) : () => go("cost", it.label) }));
+      onclick: it.others ? () => openTx(f.key ? { category: f.key, notIn: null } : { group: "cost" }, f.key ? catName(f.key) : "all costs") : f.key ? () => openTx({ category: f.key, text: it.label }, it.label) : () => go("cost", it.label) }));
     items.total = { label: f.key ? catName(f.key) : "all costs", v: sum };
   }
   let cost = 0; items.forEach(it => { it.c = it.keep ? GREEN : BAR_REDS[Math.min(cost++, 5)]; });
@@ -682,6 +682,113 @@ function renderFilings() {
   if (fl) { const b = el("button", "more", due + " to do or confirm"); b.type = "button"; b.onclick = () => showView(fl.name); box.append(b); }
 }
 
+
+/* ---------- forecast: inputs from the forecast tab, the plan worked out here, in dollars ---------- */
+const FC_INPUTS = [
+  ["revenue", "retainer income", "retainers per month", "money"], ["revenue", "program price", "program price", "money"], ["revenue", "program sales", "program sales per month", "count"],
+  ["costs", "team", "team", "money"], ["costs", "ad spend", "ads", "money"], ["costs", "software", "software", "money"], ["costs", "other costs", "other costs", "money"],
+  ["costs", "payment fees", "payment fees", "pct"], ["costs", "corporation tax", "corporation tax", "pct"]
+];
+const fc = { pick: null, sheet: false };
+function fcInputs() {
+  const t = tabByName("forecast"), out = {}; if (!t) return null;
+  t.display.forEach((r, i) => { const k = lc((r || [])[1]); if (k && (FC_INPUTS.some(x => x[1] === k) || k === "start month") && !(k in out)) { const v = String((r || [])[2] || "").trim(); out[k] = { i, raw: v, v: /%$/.test(v) ? parseFloat(v) / 100 : num(v) }; } });
+  return out;
+}
+function fcPlan(inp) {
+  const g = k => (inp[k] || {}).v || 0;
+  const ret = g("retainer income"), prog = g("program price") * g("program sales"), rev = ret + prog, rate = g("payment fees");
+  const team = g("team"), ads = g("ad spend"), soft = g("software"), other = g("other costs"), fees = rev * rate;
+  const costs = team + ads + soft + other + fees, pbt = rev - costs, tax = Math.max(0, pbt) * g("corporation tax");
+  return { ret, prog, rev, team, ads, soft, other, fees, costs, pbt, tax, pat: pbt - tax, rate, sales: g("program sales"),
+    products: [
+      { label: "retainers", v: ret, steps: [["team", team], ["payment fees", ret * rate]] },
+      { label: "program", v: prog, steps: [["ads", ads], ["payment fees", prog * rate]] }
+    ] };
+}
+function renderForecast() {
+  const inp = fcInputs(), t = tabByName("forecast");
+  if (!inp) return;
+  const p = fcPlan(inp), start = new Date(((inp["start month"] || {}).raw || iso(new Date())).slice(0, 7) + "-01T00:00:00");
+  const sm = $("#fcStart"); sm.value = iso(start).slice(0, 7);
+  sm.onchange = () => { if (/^\d{4}-\d{2}$/.test(sm.value)) saveInput(t, inp["start month"], sm.value + "-01"); };
+  $("#fcSheet").onclick = () => { fc.sheet = true; showView("forecast"); };
+
+  // inputs: click a figure to change it; it saves to the forecast tab
+  const fmt = (x, kind) => kind === "pct" ? (Math.round(x * 1000) / 10) + "%" : kind === "count" ? String(Math.round(x * 100) / 100) : money(x);
+  ["revenue", "costs"].forEach(side => {
+    const box = $(side === "revenue" ? "#fcInRev" : "#fcInCost"); box.replaceChildren(el("i", "mt", side));
+    FC_INPUTS.filter(x => x[0] === side).forEach(([, key, label, kind]) => {
+      const cell = inp[key]; if (!cell) return;
+      const val = el("span", "editable", fmt(cell.v, kind));
+      val.onclick = () => {
+        const input = el("input", "inline"); input.value = kind === "pct" ? String(Math.round(cell.v * 1000) / 10) : String(cell.v); val.replaceChildren(input); input.focus(); input.select();
+        let done = false; const finish = ok => { if (done) return; done = true; const n = parseFloat(input.value.replace(/[^0-9.\-]/g, "")); if (ok && isFinite(n)) saveInput(t, cell, kind === "pct" ? n / 100 : n); else val.textContent = fmt(cell.v, kind); };
+        input.onkeydown = e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); }; input.onblur = () => finish(true);
+      };
+      box.append(lead(label, [val]));
+    });
+  });
+
+  // projection: 12 months from the start month; months that have started show what actually happened
+  const today = iso(new Date()), cos = ["ie ltd", "uk ltd"], months = [];
+  for (let k = 0; k < 12; k++) {
+    const m = addMonths(start, k), x = { from: iso(m), to: iso(monthEnd(m)) }, started = x.from <= today;
+    const rows = started ? sel(x, null, cos) : [];
+    months.push({ m: iso(m).slice(0, 7), label: MONTHS[m.getMonth()], started, inc: total(rows.filter(isIncome)), cost: -total(rows.filter(r => isCost(r) || r.category === "director pay")) });
+  }
+  const host = $("#fcChart"), chart = el("div"); host.replaceChildren(chart);
+  const max = niceMax(Math.max(p.rev, p.costs, ...months.map(d => Math.max(d.inc, d.cost)), 1));
+  svgBox(chart, 250, W => {
+    const L = 40, base = 190, y = v => base - v / max * 180, slot = (W - L) / 12; let s = "";
+    [0, 0.25, 0.5, 0.75, 1].forEach(tk => { const v = max * tk; s += '<line x1="' + L + '" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="' + (tk ? "#ecebe7" : "#26241f") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (tk ? short(v) : "0") + "</text>"; });
+    months.forEach((d, k) => {
+      const x = L + k * slot + slot * 0.14, bw = slot * 0.34, inc = d.started ? d.inc : p.rev, cost = d.started ? d.cost : p.costs, a = d.started ? 1 : 0.4;
+      s += '<g opacity="' + a + '"><rect x="' + x + '" y="' + y(inc) + '" width="' + bw + '" height="' + (base - y(inc)) + '" fill="' + GREEN + '"/><rect x="' + (x + bw + 2) + '" y="' + y(cost) + '" width="' + bw + '" height="' + (base - y(cost)) + '" fill="' + RED + '"/></g>'
+        + '<text x="' + x + '" y="' + (base + 20) + '" ' + F + ">" + (slot < 44 ? d.label[0] : d.label) + "</text>";
+      const n = inc - cost; if (slot >= 44) s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" fill="' + (n < 0 ? RTEXT : GTEXT) + '">' + (n < 0 ? "" : "+") + short(n) + "</text>";
+      s += '<rect x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="245" fill="transparent" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|" + (d.started ? "actual" : "plan") + "|revenue " + money(inc) + "|costs " + money(cost) + (d.started ? "|plan: revenue " + money(p.rev) + ", costs " + money(p.costs) : "")) + '"/>';
+    });
+    return s;
+  });
+  const lg = el("div", "legend"); lg.innerHTML = '<span><span class="sw" style="background:' + GREEN + '"></span>revenue</span><span><span class="sw" style="background:' + RED + '"></span>costs</span><span><span class="sw faded" style="background:' + GREEN + '"></span>plan</span>';
+  host.append(lg);
+  const figs = [["revenue", p.rev * 12, "g", money(p.rev) + " a month"], ["costs", p.costs * 12, "r", money(p.costs) + " a month"], ["profit before tax", p.pbt * 12, p.pbt < 0 ? "r" : "g", p.rev > 0 ? pct(p.pbt / p.rev) + " of revenue" : ""], ["corporation tax", p.tax * 12, "r", money(p.tax) + " a month"], ["profit after tax", p.pat * 12, p.pat < 0 ? "r" : "g", money(p.pat) + " a month"]];
+  $("#fcFigs").replaceChildren(...figs.map(([l, v, c, n]) => { const d = el("div", "fig"); d.append(el("i", null, l), el("span", c, money(v)), el("span", null, n)); return d; }));
+
+  // by product: what each one brings in, what it costs, what it leaves
+  const list = $("#fcProdList"), detail = $("#fcProdDetail");
+  const all = { label: "all products", v: p.rev, steps: [["team", p.team], ["ads", p.ads], ["software", p.soft], ["other costs", p.other], ["payment fees", p.fees], ["corporation tax", p.tax]], keep: "profit after tax" };
+  p.products.forEach(x => (x.margin = x.v - x.steps.reduce((a, s) => a + s[1], 0)));
+  all.margin = p.pat;
+  const pick = p.products.find(x => x.label === fc.pick) || all;
+  list.replaceChildren(el("i", "mt", "product"));
+  [all].concat(p.products).forEach(x => list.append(lead(x.label, money(x.v) + (x.v > 0 ? " (" + pct(x.margin / x.v) + ")" : ""), { sel: x === pick, onclick: () => { fc.pick = x === all ? null : x.label; renderForecast(); } })));
+  const share = v => pick.v > 0 ? " (" + pct(v / pick.v) + ")" : "";
+  let k = 0;
+  const items = [{ label: pick.keep || "margin", v: Math.max(0, pick.margin), keep: true, c: GREEN, value: [el("span", pick.margin < 0 ? "r" : "g", money(pick.margin)), document.createTextNode(share(pick.margin))] }]
+    .concat(pick.steps.filter(s => s[1] > 0.5).map(([l, v]) => ({ label: l, v, c: BAR_REDS[Math.min(k++, 5)], value: [el("span", "r", money(-v)), document.createTextNode(share(v))] })));
+  items.total = { label: "revenue a month", v: pick.v };
+  const bar = splitBar(items, { months: 1 });
+  if (pick.label === "program" && p.sales > 0) bar.lastChild.append(lead("ads per sale", money(p.ads / p.sales), { italic: true, cls: "total" }));
+  detail.replaceChildren(el("i", "mt", pick.label), bar);
+
+  // budget against actual, for the months that have started
+  const ba = $("#fcActual"), done = months.filter(d => d.started);
+  ba.replaceChildren(el("i", "mt", "month"));
+  if (!done.length) ba.append(el("p", "empty", "the plan starts " + MONTHS[start.getMonth()] + " " + start.getFullYear()));
+  done.forEach(d => {
+    const act = d.inc - d.cost, diff = act - p.pbt;
+    ba.append(lead(d.label + " " + d.m.slice(0, 4), [el("span", act < 0 ? "r" : "g", money(act)), document.createTextNode(" profit against " + money(p.pbt) + " planned ("), el("span", diff < 0 ? "r" : "g", (diff < 0 ? "" : "+") + money(diff)), document.createTextNode(")")]));
+  });
+}
+async function saveInput(tab, cell, value) {
+  if (!cell) return;
+  await writeCell(tab, cell.i, 2, value);
+  if (TEST) { const r = tab.display[cell.i]; r[2] = typeof value === "number" && value < 1 && value > 0 ? (value * 100) + "%" : String(value); }
+  buildModel(); renderForecast();
+}
+
 /* ---------- needs attention ---------- */
 function openTasks() {
   const t = data.tasks; if (!t) return [];
@@ -696,9 +803,9 @@ function attentionItems() {
   const wrong = sel(rg, r => WRONG_ACCOUNT.includes(r.category)).length;
   const noReceipt = sel(rg, r => isCost(r) && !r.receipt, cos).length;
   return [
-    { n: check, text: (check === 1 ? "transaction" : "transactions") + " to categorise", urgent: true, go: () => goTransactions({ category: "check", from: "", to: "" }) },
-    { n: wrong, text: (wrong === 1 ? "cost" : "costs") + " paid from the wrong account", go: () => goTransactions({ only: "wrong" }) },
-    { n: noReceipt, text: (noReceipt === 1 ? "cost" : "costs") + " with no receipt", go: () => goTransactions({ only: "receipt", entities: cos.length > 1 ? cos : null, entity: cos.length === 1 ? cos[0] : "" }) }
+    { n: check, text: (check === 1 ? "transaction" : "transactions") + " to categorise", urgent: true, go: () => openTx({ category: "check", from: "", to: "" }, "to categorise") },
+    { n: wrong, text: (wrong === 1 ? "cost" : "costs") + " paid from the wrong account", go: () => openTx({ only: "wrong" }, "paid from the wrong account") },
+    { n: noReceipt, text: (noReceipt === 1 ? "cost" : "costs") + " with no receipt", go: () => openTx({ only: "receipt", entities: cos.length > 1 ? cos : null, entity: cos.length === 1 ? cos[0] : "" }, "costs with no receipt") }
   ].filter(i => i.n > 0 || i.urgent);
 }
 function renderAttention() {
@@ -805,18 +912,55 @@ function saveStatements() {
 }
 
 /* ---------- sheet tabs ---------- */
-function goTransactions(f) {
-  const rg = range();
-  const ents = scopeEntities();
-  Object.assign(txFilter, TX_CLEAR, { entity: ents.length === 1 ? ents[0] : "", entities: ents.length > 1 ? ents : null, from: rg.from, to: rg.to }, f);
-  showView("transactions");
+function txMatches(f, tab) {
+  const c = data.cols, q = lc(f.text);
+  return data.rows.filter(r => (!f.from || (r.date >= f.from && r.date <= f.to)) && (!f.entities || f.entities.includes(r.entity)) && (!f.entity || r.entity === f.entity) && (!f.account || r.account === f.account)
+    && (!f.category || r.category === f.category) && (!f.group || r.group === f.group) && (!f.notIn || !f.notIn.includes(r.category))
+    && (f.only !== "wrong" || WRONG_ACCOUNT.includes(r.category)) && (f.only !== "receipt" || (r.group === "cost" && !r.receipt))
+    && (!q || (r.merchant + " " + lc((tab.display[r.i] || [])[c.reference]) + " " + r.category + " " + r.date).includes(q))).reverse();
 }
+/* the transactions behind anything you click on the dashboard, in a pop-up you can edit and copy from */
+let txmDirty = false;
+function openTx(f, title) {
+  const rg = range(), ents = scopeEntities(), tab = tabByName("transactions");
+  const filt = Object.assign({}, TX_CLEAR, { entity: ents.length === 1 ? ents[0] : "", entities: ents.length > 1 ? ents : null, from: rg.from, to: rg.to }, f);
+  const list = txMatches(filt, tab), c = data.cols;
+  const cats = [...new Set(data.cats.concat(data.rows.map(r => r.category)))].filter(Boolean).sort();
+  $("#txmTitle").textContent = title;
+  $("#txmCount").textContent = list.length.toLocaleString("en-GB") + (list.length === 1 ? " transaction" : " transactions") + (filt.from ? ", " + longDate(filt.from) + " – " + longDate(filt.to) : "");
+  const grid = $("#txmGrid"); grid.innerHTML = "";
+  const thead = el("thead"), hr = el("tr");
+  [["date"], ["account"], ["merchant"], ["reference"], ["amount", "num"], ["category"]].forEach(([t, k]) => hr.append(el("th", k || null, t))); thead.append(hr);
+  const body = el("tbody");
+  list.slice(0, 500).forEach(r => {
+    const tr = el("tr"), d = tab.display[r.i] || [];
+    tr.append(el("td", null, r.date), el("td", null, r.account), el("td", null, d[c.merchant] || ""), el("td", null, d[c.reference] || ""), el("td", "num " + (r.amount < 0 ? "neg" : "pos"), (d[c.amount] || "") + " " + r.cur.toLowerCase()));
+    const td = el("td"), sl = el("select", "cat"); cats.forEach(v => sl.append(new Option(catName(v), v))); sl.value = r.category;
+    sl.onchange = () => { txmDirty = true; writeCell(tab, r.i, c.category, sl.value).then(() => buildModel()); };
+    td.append(sl); tr.append(td); body.append(tr);
+  });
+  grid.append(thead, body);
+  $("#txmCopy").onclick = () => {
+    const rows = [["row", "date", "account", "entity", "merchant", "reference", "amount", "currency", "category"].join("\t")].concat(list.map(r => { const d = tab.display[r.i] || []; return [r.i + 1, r.date, r.account, r.entity, d[c.merchant] || "", d[c.reference] || "", d[c.amount] || "", r.cur, r.category].join("\t"); }));
+    const txt = title + "\n" + rows.join("\n");
+    (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => { $("#txmCopy").textContent = "copied"; setTimeout(() => ($("#txmCopy").textContent = "copy"), 1500); }, () => {});
+  };
+  $("#txModal").hidden = false;
+}
+function closeTx() { $("#txModal").hidden = true; if (txmDirty) { txmDirty = false; buildModel(); if (view === "dashboard") renderDashboard(); } }
 function showView(name) {
   view = name;
   [...$("#tabs").children].forEach(b => b.setAttribute("aria-selected", b.dataset.view === name));
+  const isFc = name.toLowerCase() === "forecast" && !fc.sheet && fcInputs();
   $("#viewDashboard").hidden = name !== "dashboard";
-  $("#viewSheet").hidden = name === "dashboard";
-  if (name === "dashboard") renderDashboard(); else renderSheet(tabByName(name.toLowerCase()) || book.tabs.find(t => t.name === name));
+  $("#viewForecast").hidden = !isFc;
+  $("#viewSheet").hidden = name === "dashboard" || !!isFc;
+  if (name === "dashboard") renderDashboard();
+  else if (isFc) renderForecast();
+  else {
+    renderSheet(tabByName(name.toLowerCase()) || book.tabs.find(t => t.name === name));
+    if (name.toLowerCase() === "forecast") { const b = el("button", "box", "back to the forecast"); b.type = "button"; b.onclick = () => { fc.sheet = false; showView("forecast"); }; $("#sheetHead").append(b); }
+  }
 }
 function usedSize(tab) {
   let rows = 0, cols = 0;
@@ -891,6 +1035,7 @@ function rerenderCellRow(tab) {
 function renderTransactions(tab, c0, cols) {
   const head = $("#sheetHead"), grid = $("#grid"), c = data.cols;
   grid.className = "grid tx";
+
   const search = el("input", "box"); search.type = "search"; search.placeholder = "search"; search.value = txFilter.text;
   const mk = (label, values, key) => { const s = el("select", "box"); s.append(new Option(label, "")); values.forEach(v => s.append(new Option(v, v))); s.value = txFilter[key] || ""; s.onchange = () => { txFilter[key] = s.value; if (key === "entity") txFilter.entities = null; draw(); }; return s; };
   const entities = [...new Set(data.rows.map(r => r.entity))].sort(), accounts = [...new Set(data.rows.map(r => r.account))].sort();
@@ -908,11 +1053,7 @@ function renderTransactions(tab, c0, cols) {
     grid.innerHTML = ""; $("#more").innerHTML = ""; if (more) more.disconnect();
     const shownCols = []; for (let j = c0; j < cols; j++) if (j !== c.group) shownCols.push(j);
     const thead = el("thead"), tr = el("tr"); shownCols.forEach(j => tr.append(el("th", j === c.amount || j === c["reporting amount"] ? "num" : null, hdr[j] || ""))); thead.append(tr); grid.append(thead);
-    const q = lc(txFilter.text);
-    const list = data.rows.filter(r => (!txFilter.from || (r.date >= txFilter.from && r.date <= txFilter.to)) && (!txFilter.entities || txFilter.entities.includes(r.entity)) && (!txFilter.entity || r.entity === txFilter.entity) && (!txFilter.account || r.account === txFilter.account)
-      && (!txFilter.category || r.category === txFilter.category) && (!txFilter.group || r.group === txFilter.group)
-      && (txFilter.only !== "wrong" || WRONG_ACCOUNT.includes(r.category)) && (txFilter.only !== "receipt" || (r.group === "cost" && !r.receipt))
-      && (!q || (r.merchant + " " + lc((tab.display[r.i] || [])[c.reference]) + " " + r.category + " " + r.date).includes(q))).reverse();
+    const list = txMatches(txFilter, tab);
     count.textContent = list.length.toLocaleString("en-GB") + (list.length === 1 ? " transaction" : " transactions");
     const body = el("tbody"); grid.append(body);
     let shown = 0;
@@ -948,7 +1089,7 @@ function start() {
   const tabs = $("#tabs"); tabs.innerHTML = "";
   ["dashboard"].concat(book.tabs.map(t => t.name).filter(n => !HIDE_TABS.includes(n.toLowerCase()))).forEach(n => {
     const b = el("button", null, n); b.type = "button"; b.setAttribute("role", "tab"); b.dataset.view = n;
-    b.onclick = () => { if (n.toLowerCase() === "transactions") Object.assign(txFilter, TX_CLEAR, modeFilter()); showView(n); };
+    b.onclick = () => { if (n.toLowerCase() === "transactions") Object.assign(txFilter, TX_CLEAR, modeFilter()); if (n.toLowerCase() === "forecast") fc.sheet = false; showView(n); };
     tabs.append(b);
   });
   $("#openInSheets").href = "https://docs.google.com/spreadsheets/d/" + encodeURIComponent(book.id) + "/edit";
@@ -976,6 +1117,9 @@ $("#signOut").addEventListener("click", () => {
   auth.token = null; savePass(); book = null; data = null; setLastFile(null); showGate();
 });
 $("#pdfButton").addEventListener("click", saveStatements);
+$("#txmClose").addEventListener("click", closeTx);
+$("#txModal").addEventListener("click", e => { if (e.target.id === "txModal") closeTx(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#txModal").hidden) closeTx(); });
 let resizeTimer = null;
 window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (data && view === "dashboard") renderDashboard(); }, 150); });
 document.addEventListener("mousemove", e => {

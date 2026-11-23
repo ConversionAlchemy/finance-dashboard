@@ -72,7 +72,7 @@ main { padding: 12px 24px 40px; }
 .filters #pdfButton { margin-left: auto; }
 
 .sec { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 24px; padding: 18px 20px; margin-bottom: 12px; background: #fff; }
-#summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); row-gap: 14px; }
+#summary, .figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); row-gap: 14px; }
 .fig { display: grid; align-content: start; gap: 3px; padding: 0 14px; border-left: 1px solid var(--hair); }
 .fig:first-child { padding-left: 0; border-left: 0; }
 
@@ -93,7 +93,7 @@ main { padding: 12px 24px 40px; }
 .step .prev, .step .next { padding: 0 12px; font-size: 18px; line-height: 1; }
 .step button:disabled { color: var(--hair); cursor: default; }
 .step label { display: flex; align-items: center; border-left: 1px solid var(--hair); }
-#summary { margin-top: 18px; }
+#summary, .figs { margin-top: 18px; }
 .dot { display: inline-block; width: 12px; height: 12px; margin-right: 8px; vertical-align: -1px; border-radius: 50%; background: var(--ink); }
 .mt.group { margin-top: 14px; }
 .hit { cursor: pointer; }
@@ -186,3 +186,21 @@ main { padding: 12px 24px 40px; }
   .stmt tr.bold td:first-child { font-weight: 700; }
   .foot { margin-top: 24pt; font-style: italic; }
 }
+
+/* forecast */
+.fc .filters #fcSheet { margin-left: auto; }
+.fc .filters label.box { gap: 8px; font-style: italic; }
+.fc .filters input[type="month"] { height: 36px; border: 0; background: none; font: inherit; font-style: normal; font-weight: 700; }
+.fc #fcInRev, .fc #fcInCost { align-self: start; }
+.fc #fcInCost .mt, .fc #fcInRev .mt { margin-bottom: 6px; }
+.editable { cursor: text; }
+.editable:hover { color: var(--grey); }
+input.inline { width: 110px; height: 24px; padding: 0 4px; border: 0; outline: 2px solid var(--ink); text-align: right; }
+
+/* transactions pop-up */
+.modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 40px 24px; background: rgba(38, 36, 31, 0.25); }
+.modal-box { display: flex; flex-direction: column; width: min(1100px, 100%); max-height: 100%; background: #fff; }
+.modal-hd { display: flex; align-items: center; gap: 14px; padding: 18px 20px 14px; border-bottom: 1px solid var(--hair); }
+.modal-hd i { margin-right: auto; }
+.modal-body { overflow: auto; padding: 0 20px 20px; }
+.sw.faded { opacity: 0.4; }
