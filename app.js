@@ -365,7 +365,7 @@ function groupBy(rows, key) {
 }
 const catName = c => c === "check" ? "to categorise" : c === "income" && dash.scope === "personal" ? "other income" : c;
 const words = () => dash.scope === "personal"
-  ? { rev: "income", cost: "spending", allRev: "all income", allCost: "all spending", keep: "saved", stream: "source", box: "income and spending", pbt: "saved", of: "of income" }
+  ? { rev: "income", cost: "spending", allRev: "all income", allCost: "all spending", keep: "saved / invested", stream: "source", box: "income and spending", pbt: "saved / invested", of: "of income" }
   : { rev: "revenue", cost: "costs", allRev: "all revenue", allCost: "all costs", keep: "profit", stream: "stream", box: "revenue and costs", pbt: "profit before tax", of: "of revenue" };
 const streamOf = r => r.stream || (dash.scope === "personal" ? catName(r.category) : "other");
 
@@ -761,7 +761,7 @@ function fcPlan(inp) {
   if (dash.mode === "personal") {
     const inc = g("salary") + g("dividends") + g("other income"), parts = FC.personal.inputs.filter(x => x[0] === "spending").map(x => [x[2], g(x[1])]);
     const costs = parts.reduce((a, p) => a + p[1], 0);
-    return { rev: inc, costs, pbt: inc - costs, keep: inc - costs, sources: [["salary", g("salary")], ["dividends", g("dividends")], ["other income", g("other income")]], all: { label: "all income", v: inc, steps: parts, keep: "saved" }, products: [] };
+    return { rev: inc, costs, pbt: inc - costs, keep: inc - costs, sources: [["salary", g("salary")], ["dividends", g("dividends")], ["other income", g("other income")]], all: { label: "all income", v: inc, steps: parts, keep: "saved / invested" }, products: [] };
   }
   const ret = g("retainer income"), prog = g("program price") * g("program sales"), rev = ret + prog, rate = g("payment fees");
   const team = g("team"), ads = g("ad spend"), soft = g("software"), other = g("other costs"), fees = rev * rate;
@@ -819,7 +819,7 @@ function renderForecast() {
   const lg = el("div", "legend"); lg.innerHTML = '<span><span class="sw" style="background:' + GREEN + '"></span>' + w.rev + '</span><span><span class="sw" style="background:' + RED + '"></span>' + w.cost + '</span><span><span class="sw faded" style="background:' + GREEN + '"></span>plan</span>';
   host.append(lg);
   const figs = personal
-    ? [["income", p.rev * 12, "g", money(p.rev) + " a month"], ["spending", p.costs * 12, "r", money(p.costs) + " a month"], ["saved", p.keep * 12, p.keep < 0 ? "r" : "g", p.rev > 0 ? pct(p.keep / p.rev) + " of income" : ""]]
+    ? [["income", p.rev * 12, "g", money(p.rev) + " a month"], ["spending", p.costs * 12, "r", money(p.costs) + " a month"], ["saved / invested", p.keep * 12, p.keep < 0 ? "r" : "g", p.rev > 0 ? pct(p.keep / p.rev) + " of income" : ""]]
     : [["revenue", p.rev * 12, "g", money(p.rev) + " a month"], ["costs", p.costs * 12, "r", money(p.costs) + " a month"], ["profit before tax", p.pbt * 12, p.pbt < 0 ? "r" : "g", p.rev > 0 ? pct(p.pbt / p.rev) + " of revenue" : ""], ["corporation tax", p.tax * 12, "r", money(p.tax) + " a month"], ["profit after tax", p.keep * 12, p.keep < 0 ? "r" : "g", money(p.keep) + " a month"]];
   $("#fcFigs").replaceChildren(...figs.map(([l, v, c, n]) => { const d = el("div", "fig"); d.append(el("i", null, l), el("span", c, money(v)), el("span", null, n)); return d; }));
 
@@ -842,7 +842,7 @@ function renderForecast() {
   detail.replaceChildren(el("i", "mt", pick.label), bar);
 
   // plan against actual, for the months that have started
-  const ba = $("#fcActual"), done = months.filter(d => d.started), what = personal ? "saved" : "profit", planned = personal ? p.keep : p.pbt;
+  const ba = $("#fcActual"), done = months.filter(d => d.started), what = personal ? "saved or invested" : "profit", planned = personal ? p.keep : p.pbt;
   ba.replaceChildren(el("i", "mt", "month"));
   if (!done.length) ba.append(el("p", "empty", "the plan starts " + MONTHS[start.getMonth()] + " " + start.getFullYear()));
   done.forEach(d => {
