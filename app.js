@@ -470,7 +470,7 @@ function renderStreams(rg) {
   if (!streams.length) { list.append(el("p", "empty", "no income in this period")); detail.replaceChildren(); return; }
   if (!streams.find(s => s.label === dash.stream)) dash.stream = streams[0].label;
   streams.forEach(s => {
-    const v = [el("span", null, money(s.v))]; if (s.v > 0) { v.push(document.createTextNode("  ")); v.push(el("i", null, pct(s.margin / s.v) + (s === streams[0] ? " margin" : ""))); }
+    const v = [el("span", null, money(s.v))]; if (s.v > 0) { v.push(document.createTextNode(" (" + pct(s.margin / s.v) + ")")); }
     list.append(lead(s.label, v, { sel: s.label === dash.stream, onclick: () => { dash.stream = s.label; renderStreams(rg); } }));
   });
   list.append(lead("all revenue", money(streams.reduce((a, s) => a + s.v, 0)), { italic: true, cls: "total" }));
@@ -495,7 +495,7 @@ function renderStreams(rg) {
   key.append(lead("revenue", money(s.v)));
   parts.forEach(p => {
     const v = [el("span", p.label === "margin" ? (s.margin < 0 ? "r" : "g") : "r", money(p.label === "margin" ? s.margin : -p.v))];
-    if (s.v > 0) { v.push(document.createTextNode("  ")); v.push(el("i", null, pct((p.label === "margin" ? s.margin : p.v) / s.v))); }
+    if (s.v > 0) { v.push(document.createTextNode(" (" + pct((p.label === "margin" ? s.margin : p.v) / s.v) + ")")); }
     key.append(lead(p.label, v, { swatch: p.c }));
   });
 }
