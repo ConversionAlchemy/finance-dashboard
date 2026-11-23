@@ -480,30 +480,40 @@ function renderStreams(rg) {
   [all].concat(streams).forEach(x => list.append(lead(x.label, [el("span", null, money(x.v) + pctOf(x))], { sel: x === all ? !dash.stream : x.label === dash.stream, onclick: () => { dash.stream = x === all ? null : x.label; renderStreams(rg); } })));
 
   const s = dash.stream ? streams.find(x => x.label === dash.stream) : all;
-  const box = el("div", "chart"), key = el("div");
-  detail.replaceChildren(el("i", "mt", s.label), box, key);
-  const SHADES = [RED, "#ff8566", "#ffad99", "#ffd0c4", "#ffe6df"];
   const keep = s.profit ? "profit" : "margin";
-  const parts = [{ label: keep, v: Math.max(0, s.margin), c: GREEN }].concat(s.steps.map((st, k) => ({ label: st.label, v: -st.v, c: SHADES[k] || SHADES[4] })));
-  const whole = parts.reduce((a, p) => a + Math.max(0, p.v), 0) || 1;
-  svgBox(box, 40, W => {
-    let x = 0, out = "";
-    parts.forEach(p => {
-      const w = Math.max(0, p.v) / whole * W; if (w <= 0) return;
-      out += '<rect x="' + x + '" y="0" width="' + w + '" height="32" fill="' + p.c + '" stroke="#fff" stroke-width="1" data-tip="' + esc(p.label + "|" + money(p.v) + "|" + pct(p.v / whole)) + '"/>';
-      const t = pct(p.v / whole), fs = Math.max(7, Math.min(14, (w - 4) / (t.length * 0.56)));
-      out += '<text x="' + (w > 44 ? x + 8 : x + w / 2) + '" y="' + (16 + fs * 0.35) + '" font-size="' + fs.toFixed(1) + '" font-family="PT Sans, Arial, sans-serif" fill="#26241f" text-anchor="' + (w > 44 ? "start" : "middle") + '" pointer-events="none">' + t + "</text>";
-      x += w;
-    });
-    return out;
+  const share = v => s.v > 0 ? " (" + pct(v / s.v) + ")" : "";
+  const items = [{ label: keep, v: Math.max(0, s.margin), c: "#bfe6b9", value: [el("span", s.margin < 0 ? "r" : "g", money(s.margin)), document.createTextNode(share(s.margin))] }]
+    .concat(s.steps.map((st, k) => ({ label: st.label, v: -st.v, c: [0, 1, 2, 4, 5, 6].map(i => PASTEL[i])[k % 6], value: [el("span", "r", money(st.v)), document.createTextNode(share(-st.v))] })));
+  detail.replaceChildren(el("i", "mt", s.label), donut(items, rg));
+}
+
+/* one donut, used for revenue and costs: percentages in the slices, total in the middle, key with leaders,
+   and the google sheets hover where the slice under the mouse (or its key row) lifts with a shadow */
+function donut(items, rg) {
+  const pie = el("div", "pie"), key = el("div");
+  const sum = items.reduce((a, it) => a + Math.max(0, it.v), 0);
+  let a0 = -Math.PI / 2, p = "";
+  items.forEach((it, k) => {
+    const v = Math.max(0, it.v), frac = sum ? v / sum : 0, a1 = a0 + frac * 2 * Math.PI, R = 96, r = 56, lg = a1 - a0 > Math.PI ? 1 : 0;
+    if (frac > 0) {
+      const pt = (rr, a) => (100 + rr * Math.cos(a)).toFixed(2) + "," + (100 + rr * Math.sin(a)).toFixed(2);
+      const label = Math.round(frac * 100) < 1 ? "<1%" : Math.round(frac * 100) + "%";
+      p += '<g class="slice" data-k="' + k + '" data-tip="' + esc(it.label + "|" + money(v) + "|" + label) + '">' + (frac > 0.9999 ? '<circle cx="100" cy="100" r="76" fill="none" stroke="' + it.c + '" stroke-width="40"/>'
+        : '<path d="M' + pt(R, a0) + " A" + R + "," + R + " 0 " + lg + " 1 " + pt(R, a1) + " L" + pt(r, a1) + " A" + r + "," + r + " 0 " + lg + " 0 " + pt(r, a0) + ' Z" fill="' + it.c + '" stroke="#fff" stroke-width="2"/>');
+      const am = (a0 + a1) / 2, fs = Math.max(6, Math.min(13, frac * 2 * Math.PI * 76 / (label.length * 0.6), 40 / (label.length * 0.6)));
+      p += '<text x="' + (100 + 76 * Math.cos(am)).toFixed(1) + '" y="' + (100 + 76 * Math.sin(am) + fs * 0.35).toFixed(1) + '" font-size="' + fs.toFixed(1) + '" text-anchor="middle" font-family="PT Sans, Arial, sans-serif" fill="#26241f" pointer-events="none">' + label + "</text></g>";
+    }
+    const row = lead(it.label, it.value || money(v), { swatch: it.c, onclick: it.onclick }); row.dataset.k = k; key.append(row);
+    a0 = a1;
   });
-  key.append(lead("revenue", money(s.v)));
-  parts.forEach(p => {
-    const isKeep = p.label === keep;
-    const v = [el("span", isKeep ? (s.margin < 0 ? "r" : "g") : "r", money(isKeep ? s.margin : -p.v))];
-    if (s.v > 0) { v.push(document.createTextNode(" (" + pct((isKeep ? s.margin : p.v) / s.v) + ")")); }
-    key.append(lead(p.label, v, { swatch: p.c }));
-  });
+  const when = { year: "this year", quarter: "this quarter", month: "this month" }[rg.kind];
+  p += '<text x="100" y="98" ' + F + ' text-anchor="middle">' + esc(money(sum)) + '</text><text x="100" y="117" font-size="14" font-style="italic" text-anchor="middle" font-family="PT Sans, Arial, sans-serif" fill="#26241f">' + when + "</text>";
+  pie.innerHTML = '<svg viewBox="0 0 200 200" width="190" height="190">' + p + "</svg>"; pie.append(key);
+  const lift = k => { const g = pie.querySelector('.slice[data-k="' + k + '"]'); pie.querySelectorAll(".slice").forEach(x => x.classList.toggle("on", x === g)); if (g) { const all = pie.querySelectorAll(".slice"); all[all.length - 1].after(g); } };
+  pie.querySelectorAll(".slice").forEach(g => { g.addEventListener("mouseenter", () => lift(g.dataset.k)); g.addEventListener("mouseleave", () => lift(-1)); });
+  key.querySelectorAll(".lead[data-k]").forEach(r => { r.addEventListener("mouseenter", () => lift(r.dataset.k)); r.addEventListener("mouseleave", () => lift(-1)); });
+  if (rg.months > 1) key.append(lead("per month", money(sum / monthsElapsed(rg)), { italic: true, cls: "total" }));
+  return pie;
 }
 
 function renderCosts(rg) {
@@ -518,35 +528,11 @@ function renderCosts(rg) {
   if (rest.length) list.append(lead("everything else", money(-rest.reduce((a, c) => a + c.v, 0)), { onclick: () => goTransactions({ group: "cost" }) }));
 
   const pick = dash.cat ? rows.filter(r => r.category === dash.cat) : rows;
-  let parts = dash.cat ? groupBy(pick, r => supplier(r.merchant)) : cats.slice();
-  parts = parts.filter(p => p.v < -0.5);
+  const parts = (dash.cat ? groupBy(pick, r => supplier(r.merchant)) : cats.slice()).filter(p => p.v < -0.5);
   const shown = parts.slice(0, 6), others = parts.slice(6);
   if (others.length) shown.push({ label: others.length + " others", v: others.reduce((a, p) => a + p.v, 0), others: true });
-  const sum = -shown.reduce((a, p) => a + p.v, 0);
-  const pie = el("div", "pie"), key = el("div");
-  detail.replaceChildren(el("i", "mt", dash.cat || "all costs"), pie);
-  let a0 = -Math.PI / 2, p = "";
-  shown.forEach((it, k) => {
-    const v = -it.v, frac = sum ? v / sum : 0, a1 = a0 + frac * 2 * Math.PI, R = 96, r = 56, lg = a1 - a0 > Math.PI ? 1 : 0;
-    const pt = (rr, a) => (100 + rr * Math.cos(a)).toFixed(2) + "," + (100 + rr * Math.sin(a)).toFixed(2);
-    const label = Math.round(frac * 100) < 1 ? "<1%" : Math.round(frac * 100) + "%";
-    p += '<g class="slice" data-k="' + k + '" data-tip="' + esc(it.label + "|" + money(v) + "|" + label) + '">' + (frac > 0.9999 ? '<circle cx="100" cy="100" r="76" fill="none" stroke="' + PASTEL[k] + '" stroke-width="40"/>'
-      : '<path d="M' + pt(R, a0) + " A" + R + "," + R + " 0 " + lg + " 1 " + pt(R, a1) + " L" + pt(r, a1) + " A" + r + "," + r + " 0 " + lg + " 0 " + pt(r, a0) + ' Z" fill="' + PASTEL[k] + '" stroke="#fff" stroke-width="2"/>');
-    const am = (a0 + a1) / 2, fs = Math.max(6, Math.min(13, frac * 2 * Math.PI * 76 / (label.length * 0.6), 40 / (label.length * 0.6)));
-    p += '<text x="' + (100 + 76 * Math.cos(am)).toFixed(1) + '" y="' + (100 + 76 * Math.sin(am) + fs * 0.35).toFixed(1) + '" font-size="' + fs.toFixed(1) + '" text-anchor="middle" font-family="PT Sans, Arial, sans-serif" fill="#26241f" pointer-events="none">' + label + "</text></g>";
-    const go = it.others ? null : dash.cat ? () => goTransactions({ category: dash.cat, text: it.label }) : () => { dash.cat = it.label; renderCosts(rg); };
-    const row = lead(it.label, money(v), { swatch: PASTEL[k], onclick: go }); row.dataset.k = k; key.append(row);
-    a0 = a1;
-  });
-  const when = { year: "this year", quarter: "this quarter", month: "this month" }[rg.kind];
-  p += '<text x="100" y="98" ' + F + ' text-anchor="middle">' + esc(money(sum)) + '</text><text x="100" y="117" font-size="14" font-style="italic" text-anchor="middle" font-family="PT Sans, Arial, sans-serif" fill="#26241f">' + when + "</text>";
-  const svg = '<svg viewBox="0 0 200 200" width="190" height="190">' + p + "</svg>";
-  pie.innerHTML = svg; pie.append(key);
-  // like google sheets: the slice under the mouse, or its key row, lifts with a shadow
-  const lift = k => { const g = pie.querySelector('.slice[data-k="' + k + '"]'); pie.querySelectorAll(".slice").forEach(x => x.classList.toggle("on", x === g)); if (g) { const all = pie.querySelectorAll(".slice"); all[all.length - 1].after(g); } };
-  pie.querySelectorAll(".slice").forEach(g => { g.addEventListener("mouseenter", () => lift(g.dataset.k)); g.addEventListener("mouseleave", () => lift(-1)); });
-  key.querySelectorAll(".lead[data-k]").forEach(r => { r.addEventListener("mouseenter", () => lift(r.dataset.k)); r.addEventListener("mouseleave", () => lift(-1)); });
-  if (rg.months > 1) key.append(lead("per month", money(sum / monthsElapsed(rg)), { italic: true, cls: "total" }));
+  const items = shown.map((it, k) => ({ label: it.label, v: -it.v, c: PASTEL[k], onclick: it.others ? null : dash.cat ? () => goTransactions({ category: dash.cat, text: it.label }) : () => { dash.cat = it.label; renderCosts(rg); } }));
+  detail.replaceChildren(el("i", "mt", dash.cat || "all costs"), donut(items, rg));
 }
 
 function renderCash(rg) {
