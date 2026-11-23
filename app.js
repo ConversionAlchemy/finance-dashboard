@@ -30,7 +30,7 @@ const dash = { mode: "business", co: "companies", scope: "companies", period: "f
 const COMPANIES = [["companies", "both companies"], ["ie ltd", "irish company"], ["uk ltd", "uk company"]];
 const PERIODS = [["all", "all time"], ["fy", "this year"], ["3m", "last 3 months"], ["1m", "last month"]];
 const FX_FALLBACK = { GBPEUR: 1.17, USDEUR: 0.92, EURGBP: 0.855, USDGBP: 0.78 };
-const TX_CLEAR = { text: "", entity: "", entities: null, category: "", account: "", group: "", only: null, from: "", to: "" };
+const TX_CLEAR = { text: "", entity: "", entities: null, category: "", account: "", group: "", only: null, from: "", to: "", rec: "" };
 const txFilter = Object.assign({}, TX_CLEAR);
 const EXPORT_ICON = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M7 7.5H4.5v9h11v-9H13"/><path d="M10 12.5V2.5M6.5 6L10 2.5 13.5 6"/></svg>';
 const COLS_KEY = "ca-finance-columns-2";
@@ -1017,7 +1017,7 @@ function attentionItems() {
   const check = sel(all, r => r.category === "check").length;
   const rg = range(), cos = scopeEntities().filter(e => e !== "personal");
   const wrong = sel(rg, r => WRONG_ACCOUNT.includes(r.category)).length;
-  const noReceipt = sel(rg, r => isCost(r) && !r.receipt, cos).length;
+  const noReceipt = sel(rg, r => receiptExpected(r) && !r.receipt, cos).length;
   return [
     { n: check, text: (check === 1 ? "transaction" : "transactions") + " to categorise", urgent: true, go: () => openTx({ category: "check", from: "", to: "" }, "to categorise") },
     { n: wrong, text: (wrong === 1 ? "cost" : "costs") + " paid from the wrong account", go: () => openTx({ only: "wrong" }, "paid from the wrong account") },
@@ -1152,7 +1152,8 @@ function txMatches(f, tab) {
   const c = data.cols, q = lc(f.text);
   return data.rows.filter(r => !r.synthetic && (!f.from || (r.date >= f.from && r.date <= f.to)) && (!f.entities || f.entities.includes(r.entity)) && (!f.entity || r.entity === f.entity) && (!f.account || r.account === f.account)
     && (!f.category || r.category === f.category) && (!f.group || r.group === f.group) && (!f.notIn || !f.notIn.includes(r.category))
-    && (f.only !== "wrong" || WRONG_ACCOUNT.includes(r.category)) && (f.only !== "receipt" || (r.group === "cost" && !r.receipt))
+    && (f.only !== "wrong" || WRONG_ACCOUNT.includes(r.category)) && (f.only !== "receipt" || (receiptExpected(r) && !r.receipt))
+    && (!f.rec || (f.rec === "missing" ? receiptExpected(r) && !r.receipt : f.rec === "linked" ? !!r.receipt : !receiptExpected(r) && !r.receipt))
     && (!q || (r.merchant + " " + lc((tab.display[r.i] || [])[c.reference]) + " " + r.category + " " + r.date).includes(q))).reverse();
 }
 /* the transactions behind anything you click on the dashboard, in a pop-up you can edit and copy from */
@@ -1286,7 +1287,10 @@ function renderTransactions(tab, c0, cols) {
   const real = data.rows.filter(r => !r.synthetic), entities = [...new Set(real.map(r => r.entity))].sort(), accounts = [...new Set(real.map(r => r.account))].sort();
   const cats = [...new Set(data.cats.concat(data.rows.map(r => r.category)))].filter(Boolean).sort();
   const count = el("span", "count");
-  head.append(search, mk("all entities", entities, "entity"), mk("all accounts", accounts, "account"), mk("all categories", cats, "category"));
+  // receipts: the ones still to reconcile, the ones linked, and the ones that don't need one
+  const recSel = el("select", "box"); [["", "all receipts"], ["missing", "receipt missing"], ["linked", "receipt linked"], ["none", "no receipt needed"]].forEach(([v, l]) => recSel.append(new Option(l, v)));
+  recSel.value = txFilter.rec || ""; recSel.onchange = () => { txFilter.rec = recSel.value; draw(); };
+  head.append(search, mk("all entities", entities, "entity"), mk("all accounts", accounts, "account"), mk("all categories", cats, "category"), recSel);
   if (txFilter.only) { const b = el("button", "box chip", txFilter.only === "wrong" ? "paid from the wrong account" : "no receipt"); b.type = "button"; b.onclick = () => { txFilter.only = null; renderSheet(tab); }; head.append(b); }
   if (txFilter.group) { const b = el("button", "box chip", "all " + txFilter.group + "s"); b.type = "button"; b.onclick = () => { txFilter.group = ""; renderSheet(tab); }; head.append(b); }
   if (txFilter.from) { const b = el("button", "box chip", longDate(txFilter.from) + " – " + longDate(txFilter.to)); b.type = "button"; b.onclick = () => { txFilter.from = txFilter.to = ""; renderSheet(tab); }; head.append(b); }
