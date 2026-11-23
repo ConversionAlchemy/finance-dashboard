@@ -469,27 +469,29 @@ function renderStreams(rg) {
     const v = [el("span", null, money(s.v))]; if (s.v > 0) { v.push(document.createTextNode("  ")); v.push(el("i", null, pct(s.margin / s.v) + (s === streams[0] ? " margin" : ""))); }
     list.append(lead(s.label, v, { sel: s.label === dash.stream, onclick: () => { dash.stream = s.label; renderStreams(rg); } }));
   });
-  list.append(lead("all income", money(streams.reduce((a, s) => a + s.v, 0)), { italic: true, cls: "total" }));
+  list.append(lead("all revenue", money(streams.reduce((a, s) => a + s.v, 0)), { italic: true, cls: "total" }));
 
   const s = streams.find(x => x.label === dash.stream);
-  const box = el("div");
-  detail.replaceChildren(el("i", "mt", s.label + ", from income to margin"), box);
-  const steps = [{ label: "income", v: s.v, kind: "i" }].concat(s.steps).concat([{ label: "margin", v: s.margin, kind: "m" }]);
-  svgBox(box, steps.length * 42 + 4, W => {
-    const lab = 150, bw = Math.max(60, W - lab - 120), max = Math.max(1, s.v), x = v => lab + Math.max(0, v) / max * bw;
-    let out = "", run = 0;
-    steps.forEach((st, k) => {
-      const yy = 6 + k * 42; let a, b, c;
-      if (st.kind === "i") { a = 0; b = st.v; c = GREEN; run = st.v; }
-      else if (st.kind === "m") { a = 0; b = st.v; c = st.v < 0 ? RED : GREEN; }
-      else { a = run + st.v; b = run; c = RED; run += st.v; }
-      const w = Math.max(1, x(Math.max(a, b)) - x(Math.min(a, b)));
-      out += "<text x=\"0\" y=\"" + (yy + 17) + "\" " + F + (st.kind === "m" ? ' font-style="italic"' : "") + ">" + esc(st.label) + "</text>"
-        + '<rect x="' + x(Math.min(a, b)) + '" y="' + yy + '" width="' + w + '" height="24" fill="' + c + '"' + (st.kind === "m" ? ' fill-opacity="0.55"' : "") + "/>"
-        + '<text x="' + (x(Math.max(a, b)) + 8) + '" y="' + (yy + 17) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" fill="' + (st.v < 0 ? RTEXT : GTEXT) + '">' + esc(money(st.v) + (st.kind === "m" && s.v > 0 ? "  (" + pct(st.v / s.v) + ")" : "")) + "</text>";
-      if (k < steps.length - 1 && st.kind !== "m") out += '<line x1="' + x(run) + '" x2="' + x(run) + '" y1="' + (yy + 24) + '" y2="' + (yy + 42) + '" stroke="#b8b3a8" stroke-dasharray="2 2"/>';
+  const box = el("div", "chart"), key = el("div");
+  detail.replaceChildren(el("i", "mt", s.label + ", where the revenue goes"), box, key);
+  const SHADES = [RED, "#ff8566", "#ffad99", "#ffd0c4", "#ffe6df"];
+  const parts = [{ label: "margin", v: Math.max(0, s.margin), c: GREEN }].concat(s.steps.map((st, k) => ({ label: st.label, v: -st.v, c: SHADES[k] || SHADES[4] })));
+  const whole = parts.reduce((a, p) => a + Math.max(0, p.v), 0) || 1;
+  svgBox(box, 40, W => {
+    let x = 0, out = "";
+    parts.forEach(p => {
+      const w = Math.max(0, p.v) / whole * W; if (w <= 0) return;
+      out += '<rect x="' + x + '" y="0" width="' + w + '" height="32" fill="' + p.c + '" stroke="#fff" stroke-width="1" data-tip="' + esc(p.label + "|" + money(p.v) + "|" + pct(p.v / whole)) + '"/>';
+      if (w > 44) out += '<text x="' + (x + 8) + '" y="21" ' + F + ">" + pct(p.v / whole) + "</text>";
+      x += w;
     });
     return out;
+  });
+  key.append(lead("revenue", money(s.v)));
+  parts.forEach(p => {
+    const v = [el("span", p.label === "margin" ? (s.margin < 0 ? "r" : "g") : "r", money(p.label === "margin" ? s.margin : -p.v))];
+    if (s.v > 0) { v.push(document.createTextNode("  ")); v.push(el("i", null, pct((p.label === "margin" ? s.margin : p.v) / s.v))); }
+    key.append(lead(p.label, v, { swatch: p.c }));
   });
 }
 
