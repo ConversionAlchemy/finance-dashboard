@@ -30,7 +30,7 @@ const dash = { mode: "business", co: "companies", scope: "companies", period: "f
 const COMPANIES = [["companies", "both companies"], ["ie ltd", "irish company"], ["uk ltd", "uk company"]];
 const PERIODS = [["all", "all time"], ["fy", "this year"], ["3m", "last 3 months"], ["1m", "last month"]];
 const FX_FALLBACK = { GBPEUR: 1.17, USDEUR: 0.92, EURGBP: 0.855, USDGBP: 0.78 };
-const TX_CLEAR = { text: "", entity: "", entities: null, category: "", account: "", group: "", only: null, from: "", to: "", rec: "" };
+const TX_CLEAR = { text: "", entity: "", entities: null, category: "", account: "", group: "", only: null, from: "", to: "", rec: "", supplier: "", notIn: null };
 const txFilter = Object.assign({}, TX_CLEAR);
 const EXPORT_ICON = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M7 7.5H4.5v9h11v-9H13"/><path d="M10 12.5V2.5M6.5 6L10 2.5 13.5 6"/></svg>';
 const COLS_KEY = "ca-finance-columns-2";
@@ -683,7 +683,7 @@ function renderFlow(rg) {
     const sum = -shown.reduce((a, p) => a + p.v, 0);
     title = f.key ? catName(f.key) : w.allCost;
     items = shown.map(it => ({ label: f.key ? it.label : catName(it.label), v: -it.v, value: money(-it.v) + pctOf(-it.v, sum),
-      onclick: it.others ? () => openTx(f.key ? { category: f.key, notIn: null } : { group: "cost" }, f.key ? catName(f.key) : "all costs") : f.key ? () => openTx({ category: f.key, text: it.label }, it.label) : () => go("cost", it.label) }));
+      onclick: it.others ? () => openTx(f.key ? { category: f.key, notIn: null } : { group: "cost" }, f.key ? catName(f.key) : "all costs") : f.key ? () => openTx({ category: f.key, supplier: it.label }, it.label) : () => go("cost", it.label) }));
     items.total = { label: f.key ? catName(f.key) : w.allCost, v: sum };
   }
   let cost = 0; items.forEach(it => { it.c = it.keep ? GREEN : BAR_REDS[Math.min(cost++, 5)]; });
@@ -1245,31 +1245,27 @@ function txMatches(f, tab) {
   return data.rows.filter(r => !r.synthetic && (!f.from || (r.date >= f.from && r.date <= f.to)) && (!f.entities || f.entities.includes(r.entity)) && (!f.entity || r.entity === f.entity) && (!f.account || r.account === f.account)
     && (!f.category || r.category === f.category) && (!f.group || r.group === f.group) && (!f.notIn || !f.notIn.includes(r.category))
     && (f.only !== "wrong" || WRONG_ACCOUNT.includes(r.category)) && (f.only !== "receipt" || (receiptExpected(r) && !r.receipt))
+    && (!f.supplier || supplier(r.merchant) === f.supplier)
     && (!f.rec || (f.rec === "missing" ? receiptExpected(r) && !r.receipt : f.rec === "linked" ? !!r.receipt : !receiptExpected(r) && !r.receipt))
     && (!q || (r.merchant + " " + lc((tab.display[r.i] || [])[c.reference]) + " " + r.category + " " + r.date).includes(q))).reverse();
 }
 /* the transactions behind anything you click on the dashboard, in a pop-up you can edit and copy from */
 let txmDirty = false, moreModal = null;
 function openTx(f, title) {
-  const rg = range(), ents = scopeEntities(), tab = tabByName("transactions");
+  const rg = range(), ents = scopeEntities(), tab = tabByName("transactions"), c = data.cols;
   const filt = Object.assign({}, TX_CLEAR, { entity: ents.length === 1 ? ents[0] : "", entities: ents.length > 1 ? ents : null, from: rg.from, to: rg.to }, f);
-  const list = txMatches(filt, tab), c = data.cols;
-  const cats = [...new Set(data.cats.concat(data.rows.map(r => r.category)))].filter(Boolean).sort();
-  $("#txmTitle").textContent = title;
-  $("#txmCount").textContent = list.length.toLocaleString("en-GB") + (list.length === 1 ? " transaction" : " transactions") + (filt.from ? ", " + longDate(filt.from) + " – " + longDate(filt.to) : "");
-  const grid = $("#txmGrid"); grid.innerHTML = ""; if (moreModal) moreModal.disconnect();
-  const real = data.rows.filter(r => !r.synthetic), entities = [...new Set(real.map(r => r.entity))].sort(), accounts = [...new Set(real.map(r => r.account))].sort();
-  const host = $("#txmMore"); host.innerHTML = "";
-  $("#txModal").hidden = false;
-  moreModal = txTable({ grid, scroller: grid.closest(".modal-body"), host, tab, list, shownCols: txCols(c).filter(([n]) => !txHidden.has(n)), bal: runningBalance(filt), cats, entities, accounts });
+  $("#txmTitle").textContent = title; $("#txmCount").textContent = "";
+  const show = () => txView({ head: $("#txmHead"), grid: $("#txmGrid"), scroller: $("#txmGrid").closest(".modal-body"), host: $("#txmMore"), tab, f: filt, rebuild: show, key: "modal" });
+  $("#txModal").hidden = false; show();
+  $("#txmOpen").onclick = () => { Object.assign(txFilter, TX_CLEAR, filt); closeTx(); showView("transactions"); };
   $("#txmCopy").onclick = () => {
+    const list = txMatches(filt, tab);
     const rows = [["row", "date", "account", "entity", "merchant", "reference", "amount", "currency", "category"].join("\t")].concat(list.map(r => { const d = tab.display[r.i] || []; return [r.i + 1, r.date, r.account, r.entity, d[c.merchant] || "", d[c.reference] || "", d[c.amount] || "", r.cur, r.category].join("\t"); }));
     const txt = title + "\n" + rows.join("\n");
     (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => { $("#txmCopy").textContent = "copied"; setTimeout(() => ($("#txmCopy").textContent = "copy"), 1500); }, () => {});
   };
-  $("#txModal").hidden = false;
 }
-function closeTx() { $("#txModal").hidden = true; if (txmDirty) { txmDirty = false; buildModel(); if (view === "dashboard") renderDashboard(); } }
+function closeTx() { $("#txModal").hidden = true; if (txObs.modal) txObs.modal.disconnect(); buildModel(); if (view === "dashboard") renderDashboard(); }
 // on the sheet tabs the page fits the window exactly: the table scrolls inside its box and the watermark always shows
 function fitSheet() {
   const sheet = !$("#viewSheet").hidden, sc = $("#sheetScroll");
@@ -1309,6 +1305,7 @@ let more = null;
 function renderSheet(tab) {
   const head = $("#sheetHead"), grid = $("#grid"); head.innerHTML = ""; grid.innerHTML = ""; $("#more").innerHTML = "";
   if (more) { more.disconnect(); more = null; }
+  if (txObs.sheet) { txObs.sheet.disconnect(); txObs.sheet = null; }
   if (!tab) return;
   const size = usedSize(tab), c0 = firstUsedCol(tab);
   if (tab.name.toLowerCase() === "transactions" && data.head >= 0) return renderTransactions(tab, c0, size.cols);
@@ -1374,24 +1371,32 @@ function rerenderCellRow(tab) {
   const sc = $("#sheetScroll").scrollTop; renderSheet(tab); $("#sheetScroll").scrollTop = sc;
 }
 
-function renderTransactions(tab, c0, cols) {
-  const head = $("#sheetHead"), grid = $("#grid"), c = data.cols;
+function renderTransactions(tab) {
+  txView({ head: $("#sheetHead"), grid: $("#grid"), scroller: $("#sheetScroll"), host: $("#more"), tab, f: txFilter, rebuild: () => renderSheet(tab), key: "sheet" });
+}
+// the transactions view: a filter bar and the table under it. the transactions tab and every pop-up are this same view,
+// each with its own filter; a pop-up is just the transactions tab with a filter already applied
+const txObs = {};
+function txView({ head, grid, scroller, host, tab, f, rebuild, key }) {
+  const c = data.cols; head.innerHTML = ""; head.className = "sheet-head";
   grid.className = "grid tx";
 
-  const search = el("input", "box"); search.type = "search"; search.placeholder = "search"; search.value = txFilter.text;
-  const mk = (label, values, key) => { const s = el("select", "box"); s.append(new Option(label, "")); values.forEach(v => s.append(new Option(v, v))); s.value = txFilter[key] || ""; s.onchange = () => { txFilter[key] = s.value; if (key === "entity") txFilter.entities = null; draw(); }; return s; };
+  const search = el("input", "box"); search.type = "search"; search.placeholder = "search"; search.value = f.text;
+  const mk = (label, values, key) => { const s = el("select", "box"); s.append(new Option(label, "")); values.forEach(v => s.append(new Option(v, v))); s.value = f[key] || ""; s.onchange = () => { f[key] = s.value; if (key === "entity") f.entities = null; draw(); }; return s; };
   const real = data.rows.filter(r => !r.synthetic), entities = [...new Set(real.map(r => r.entity))].sort(), accounts = [...new Set(real.map(r => r.account))].sort();
   const cats = [...new Set(data.cats.concat(data.rows.map(r => r.category)))].filter(Boolean).sort();
   const count = el("span", "count");
   // receipts: the ones still to reconcile, the ones linked, and the ones that don't need one
   const recSel = el("select", "box"); [["", "all receipts"], ["missing", "receipt missing"], ["linked", "receipt linked"], ["none", "no receipt needed"]].forEach(([v, l]) => recSel.append(new Option(l, v)));
-  recSel.value = txFilter.rec || ""; recSel.onchange = () => { txFilter.rec = recSel.value; draw(); };
+  recSel.value = f.rec || ""; recSel.onchange = () => { f.rec = recSel.value; draw(); };
   head.append(search, mk("all entities", entities, "entity"), mk("all accounts", accounts, "account"), mk("all categories", cats, "category"), recSel);
-  if (txFilter.only) { const b = el("button", "box chip", txFilter.only === "wrong" ? "paid from the wrong account" : "no receipt"); b.type = "button"; b.onclick = () => { txFilter.only = null; renderSheet(tab); }; head.append(b); }
-  if (txFilter.group) { const b = el("button", "box chip", "all " + txFilter.group + "s"); b.type = "button"; b.onclick = () => { txFilter.group = ""; renderSheet(tab); }; head.append(b); }
-  if (txFilter.from) { const b = el("button", "box chip", longDate(txFilter.from) + " – " + longDate(txFilter.to)); b.type = "button"; b.onclick = () => { txFilter.from = txFilter.to = ""; renderSheet(tab); }; head.append(b); }
+  if (f.only) { const b = el("button", "box chip", f.only === "wrong" ? "paid from the wrong account" : "no receipt"); b.type = "button"; b.onclick = () => { f.only = null; rebuild(); }; head.append(b); }
+  if (f.group && !f.category) { const b = el("button", "box chip", "all " + f.group + "s"); b.type = "button"; b.onclick = () => { f.group = ""; rebuild(); }; head.append(b); }
+  if (f.from) { const b = el("button", "box chip", longDate(f.from) + " – " + longDate(f.to)); b.type = "button"; b.onclick = () => { f.from = f.to = ""; rebuild(); }; head.append(b); }
+  if (f.supplier) { const b = el("button", "box chip", f.supplier); b.type = "button"; b.onclick = () => { f.supplier = ""; rebuild(); }; head.append(b); }
+  if (f.notIn) { const b = el("button", "box chip", "everything else"); b.type = "button"; b.onclick = () => { f.notIn = null; rebuild(); }; head.append(b); }
   head.append(count);
-  let t; search.oninput = () => { clearTimeout(t); t = setTimeout(() => { txFilter.text = search.value; draw(); }, 150); };
+  let t; search.oninput = () => { clearTimeout(t); t = setTimeout(() => { f.text = search.value; draw(); }, 150); };
 
   // the columns: the optional ones are switched on and off from the columns menu, remembered between visits
   const ALL = txCols(c);
@@ -1405,11 +1410,11 @@ function renderTransactions(tab, c0, cols) {
     lab.append(cb, " " + (n === "amount" ? "original amount" : n)); menu.append(lab);
   });
   colBtn.onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; colBtn.setAttribute("aria-expanded", !menu.hidden); };
-  document.addEventListener("click", e => { if (!menu.contains(e.target) && !colBtn.contains(e.target)) { menu.hidden = true; colBtn.setAttribute("aria-expanded", false); } });
+  head.onclick = e => { if (!menu.contains(e.target) && !colBtn.contains(e.target)) { menu.hidden = true; colBtn.setAttribute("aria-expanded", false); } };
   // export: the transactions as filtered, every column, as a csv file
   const exp = el("button", "box icon"); exp.type = "button"; exp.title = "export"; exp.setAttribute("aria-label", "export"); exp.innerHTML = EXPORT_ICON;
   exp.onclick = () => {
-    const list = txMatches(txFilter, tab), bal = runningBalance(txFilter), q = v => { const x = v == null ? "" : String(v); return /[",\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; };
+    const list = txMatches(f, tab), bal = runningBalance(f), q = v => { const x = v == null ? "" : String(v); return /[",\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; };
     const lines = [["date", "account", "entity", "merchant", "reference", "amount", "currency", "usd", "balance", "category", "receipt"].join(",")]
       .concat(list.map(r => { const d = tab.display[r.i] || [], link = receiptLink((tab.raw[r.i] || [])[c.receipt], d[c.receipt]);
         return [r.date, r.account, r.entity, d[c.merchant], d[c.reference], r.amount.toFixed(2), r.cur, r.v.toFixed(2), bal.has(r.i) ? bal.get(r.i).toFixed(2) : "", r.category, link ? link.url : d[c.receipt] || ""].map(q).join(","); }));
@@ -1421,10 +1426,10 @@ function renderTransactions(tab, c0, cols) {
   const PAGE = 120;
   function draw() {
     const shownCols = ALL.filter(([n]) => !txHidden.has(n));
-    grid.innerHTML = ""; $("#more").innerHTML = ""; if (more) more.disconnect();
-    const list = txMatches(txFilter, tab);
+    grid.innerHTML = ""; host.innerHTML = ""; if (txObs[key]) txObs[key].disconnect();
+    const list = txMatches(f, tab);
     count.textContent = list.length.toLocaleString("en-GB") + (list.length === 1 ? " transaction" : " transactions");
-    more = txTable({ grid, scroller: $("#sheetScroll"), host: $("#more"), tab, list, shownCols, bal: runningBalance(txFilter), cats, entities, accounts });
+    txObs[key] = txTable({ grid, scroller, host, tab, list, shownCols, bal: runningBalance(f), cats, entities, accounts });
   }
   draw();
 }
