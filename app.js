@@ -251,7 +251,13 @@ function buildModel() {
   });
   rows.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
   const tasks = tabByName("tasks"); const filings = tabByName("filings");
-  data = { rows, cols, head, catGroup, cats: Object.keys(catGroup), ent, tasks, filings, fx, fxCache: {} };
+  const inv = tabByName("investments"), invRows = inv ? inv.display : [], invVal = k => { const i = findRow(invRows, [k]); return i < 0 ? "" : String((invRows[i] || [])[(invRows[i] || []).map(lc).indexOf(k) + 1] || ""); };
+  const investments = inv ? {
+    monthly: num(invVal("invest per month")), starts: invVal("starts").slice(0, 10), years: num(invVal("years")) || 5,
+    watch: block(invRows, ["name", "ticker", "price now", "today"]).map(([n, t, p, d]) => ({ name: lc(n), ticker: String(t || ""), price: lc(p) === "private" ? null : num(p), priv: lc(p) === "private", today: String(d || "").trim() ? parseFloat(d) / 100 : null })),
+    holdings: block(invRows, ["date", "ticker", "shares", "paid", "price now", "value now"]).filter(r => lc(r[1])).map(([d, t, sh, pd, pr, v]) => ({ date: String(d).slice(0, 10), ticker: String(t).toUpperCase(), shares: num(sh), paid: num(pd), price: num(pr), value: num(v) || num(pd) }))
+  } : null;
+  data = { rows, cols, head, catGroup, cats: Object.keys(catGroup), ent, tasks, filings, fx, fxCache: {}, investments };
   applyCurrency();
 }
 
@@ -411,6 +417,7 @@ function modeFilter() { return dash.mode === "personal" ? { entity: "personal", 
 function renderMode() {
   document.documentElement.classList.toggle("dark", dash.mode === "personal");
   const ft = [...$("#tabs").children].find(b => lc(b.dataset.view) === "forecast"); if (ft) ft.textContent = dash.mode === "personal" ? "budget" : "forecast";
+  const it = [...$("#tabs").children].find(b => lc(b.dataset.view) === "investments"); if (it) it.hidden = dash.mode !== "personal";
   const mp = $("#modePick"); mp.innerHTML = "";
   [["business", "business"], ["personal", "personal"]].forEach(([k, t]) => {
     const b = el("button", null, t); b.type = "button"; b.setAttribute("aria-pressed", dash.mode === k);
@@ -457,6 +464,7 @@ function renderDashboard() {
   renderFlow(rg);
   renderFilings();
   renderCash(rg);
+  renderInvestments();
   renderTasks();
   renderAttention();
 }
@@ -481,8 +489,8 @@ function renderSummary(rg) {
   if (personal) {
     // net worth: your cash, plus what the companies owe you on your director's loan (minus what you owe them)
     const loan = c => balance(c, r => ["director's loan", "business costs paid personally"].includes(r.category), ["ie ltd", "uk ltd", "personal"]);
-    const nw = f.cash + loan(rg.to), nwp = rg.kind === "all" ? null : (p.cash || 0) + loan(prevRange(rg).to);
-    cols.push(["net worth", nw, nw < 0 ? "r" : "g", nwp == null ? "cash and director's loan" : change(nw, nwp)]);
+    const nw = f.cash + loan(rg.to) + investValue(), nwp = rg.kind === "all" ? null : (p.cash || 0) + loan(prevRange(rg).to) + investedBy(prevRange(rg).to);
+    cols.push(["net worth", nw, nw < 0 ? "r" : "g", nwp == null ? "cash, investments and director's loan" : change(nw, nwp)]);
   }
   $("#summary").replaceChildren(...cols.map(([label, v, cls, note]) => { const d = el("div", "fig"), n = el("span"); if (Array.isArray(note)) n.append(...note); else n.textContent = note; d.append(el("i", null, label), el("span", cls || null, money(v)), n); return d; }));
 }
@@ -716,9 +724,10 @@ function renderFilings() {
   items.forEach(f => {
     const row = el("div", "filing"), left = el("div"), when = f.target || f.deadline, filed = f.status === "filed, to confirm";
     const soon = when && (when < today || (new Date(when + "T00:00:00") - new Date(today + "T00:00:00")) / 864e5 <= 31);
-    left.append(el("span", null, f.name + (ents.length > 1 ? " (" + f.who + ")" : "")));
+    const nm = el("span", null, f.name + (ents.length > 1 ? " (" + f.who + ")" : ""));
+    nm.title = [f.deadline ? "due " + longDate(f.deadline) : "", f.notes].filter(Boolean).join("\n");
+    left.append(nm);
     if (when && !filed) left.append(el("i", "filing-dates" + (soon ? " late" : ""), submitText(f, today)));
-    row.dataset.tip = [f.name, f.deadline ? "due " + longDate(f.deadline) : "", f.notes].filter(Boolean).join("|");
     const st = el("select", "status"); FILING_STATUS.forEach(([v, l]) => st.append(new Option(l, v))); st.value = FILING_STATUS.some(x => x[0] === f.status) ? f.status : "coming up";
     st.onchange = () => { f.status = st.value; writeCell(fl, f.row, f.col, st.value).then(() => { if (TEST) fl.display[f.row][f.col] = st.value; renderFilings(); }); };
     row.append(left, st);
@@ -851,6 +860,39 @@ async function saveInput(tab, cell, value, col = 1) {
   await writeCell(tab, cell.i, col + 1, value);
   if (TEST) { const r = tab.display[cell.i]; r[col + 1] = typeof value === "number" && value < 1 && value > 0 ? (value * 100) + "%" : String(value); }
   buildModel(); renderForecast();
+}
+
+/* ---------- investments (personal): what you've put in, what it's worth now, and the monthly goal ---------- */
+function investedBy(to) { const iv = data.investments; return iv ? iv.holdings.filter(h => h.date <= to).reduce((a, h) => a + h.paid, 0) : 0; }
+function investValue() { const iv = data.investments; return iv ? iv.holdings.reduce((a, h) => a + h.value, 0) : 0; }
+function renderInvestments() {
+  const sec = $("#investSec"), iv = data.investments, show = dash.mode === "personal" && !!iv;
+  sec.hidden = !show; if (!show) return;
+  const list = $("#investList"), detail = $("#investDetail"), today = iso(new Date());
+  const byT = new Map(); iv.holdings.forEach(h => { const x = byT.get(h.ticker) || { paid: 0, value: 0 }; x.paid += h.paid; x.value += h.value; byT.set(h.ticker, x); });
+  const paid = [...byT.values()].reduce((a, x) => a + x.paid, 0), value = investValue();
+  const growth = (v, p) => { const g = v - p; return [el("span", g < 0 ? "r" : "g", money(v)), document.createTextNode(p > 0 ? " (" + (g < 0 ? "" : "+") + pct(g / p) + ")" : "")]; };
+  list.replaceChildren(el("i", "mt", "holding"));
+  if (!byT.size) list.append(el("p", "empty", "nothing invested yet"));
+  else {
+    list.append(lead("all holdings", growth(value, paid), { sel: true }));
+    [...byT.entries()].sort((a, b) => b[1].value - a[1].value).forEach(([t, x]) => list.append(lead(t.replace(/^[A-Z]+:/, "").toLowerCase(), growth(x.value, x.paid))));
+    list.append(lead("put in", money(paid), { italic: true, cls: "total" }));
+  }
+  // the goal: so much a month from the start month, for so many years
+  const start = iv.starts || today, months = start > today ? 0 : Math.max(1, Math.floor((new Date(today + "T00:00:00") - new Date(start + "T00:00:00")) / (864e5 * 30.44)) + 1);
+  const pace = months * iv.monthly, target = iv.monthly * 12 * iv.years, diff = paid - pace;
+  const s0 = new Date(start + "T00:00:00"), end = addMonths(s0, iv.years * 12 - 1);
+  const goal = el("div");
+  goal.append(el("i", "mt", "goal"), lead("each month", money(iv.monthly)), lead("by " + MONTHS[end.getMonth()] + " " + end.getFullYear(), money(target)),
+    lead("so far", months ? [el("span", diff < -0.5 ? "r" : "g", money(paid)), document.createTextNode(" of " + money(pace) + (diff < -0.5 ? " (" + money(-diff) + " behind)" : diff > 0.5 ? " (" + money(diff) + " ahead)" : ""))] : "starts " + longDate(start)));
+  const bar = el("div", "chart");
+  goal.append(bar);
+  setTimeout(() => svgBox(bar, 20, W2 => { const w = Math.min(1, paid / (target || 1)) * W2; return '<rect x="0" y="4" width="' + W2 + '" height="12" style="fill:var(--soft)"/><rect x="0" y="4" width="' + w + '" height="12" fill="' + GREEN + '"/>'; }), 0);
+  const watch = el("div");
+  watch.append(el("i", "mt group", "highlighted"));
+  iv.watch.forEach(w => watch.append(lead(w.name, w.priv ? [el("i", null, "private")] : [el("span", null, money(w.price).replace(/(\.\d+)?$/, "") ), document.createTextNode(" "), el("span", w.today < 0 ? "r" : "g", w.today == null ? "" : (w.today < 0 ? "" : "+") + (Math.round(w.today * 1000) / 10) + "% today")])));
+  detail.replaceChildren(goal, watch);
 }
 
 /* ---------- needs attention ---------- */
