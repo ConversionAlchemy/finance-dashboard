@@ -1164,7 +1164,9 @@ function renderTasks() {
   const fit = () => {
     const cash = $("#cashList") && $("#cashList").closest(".sec"), side = box.closest(".side-col");
     let room = Infinity;
-    if (cash && side && cash.offsetParent && box.getBoundingClientRect().left >= cash.getBoundingClientRect().right) {
+    // off the dashboard the side column stops where the window ends, just above the watermark
+    if (view !== "dashboard" && side) { const mark = $(".mark"); room = innerHeight - (mark ? mark.offsetHeight : 0) - (ta.getBoundingClientRect().top + scrollY) - parseFloat(getComputedStyle(box).paddingBottom); }
+    else if (cash && side && cash.offsetParent && box.getBoundingClientRect().left >= cash.getBoundingClientRect().right) {
       room = cash.getBoundingClientRect().bottom - ta.getBoundingClientRect().top - parseFloat(getComputedStyle(box).paddingBottom);
     }
     ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight + 2, Math.max(160, room)) + "px";
@@ -1303,7 +1305,9 @@ function fitSheet() {
   document.documentElement.classList.toggle("fit", sheet);
   if (!sheet) { sc.style.height = ""; return; }
   sc.style.height = "0px";
-  const mark = $(".mark"), used = mark ? mark.getBoundingClientRect().bottom + scrollY : document.documentElement.scrollHeight;
+  // measured from the page column, not the whole page, so the side column beside it doesn't change the answer
+  const mark = $(".mark"), views = $(".views"), main = $("main"), mh = mark ? mark.offsetHeight : 0;
+  const used = views.getBoundingClientRect().bottom + scrollY + parseFloat(getComputedStyle(main).paddingBottom) + mh;
   sc.style.height = Math.max(200, Math.floor(sc.offsetHeight + innerHeight - used)) + "px";
 }
 addEventListener("resize", () => fitSheet());
@@ -1321,6 +1325,8 @@ function showView(name) {
     renderSheet(tabByName(name.toLowerCase()) || book.tabs.find(t => t.name === name));
     if (name.toLowerCase() === "forecast") { const b = el("button", "box", "back to the forecast"); b.type = "button"; b.onclick = () => { fc.sheet = false; showView("forecast"); }; $("#sheetHead").append(b); }
   }
+  // filings, needs attention and tasks show beside every page
+  if (name !== "dashboard") { renderFilings(); renderTasks(); renderAttention(); fitTasks(); }
   fitSheet();
 }
 function usedSize(tab) {
