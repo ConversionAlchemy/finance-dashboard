@@ -266,7 +266,8 @@ function rate(month, from, to) {
   if (r == null) r = FX_FALLBACK[from + to] || (FX_FALLBACK[to + from] ? 1 / FX_FALLBACK[to + from] : (FX_FALLBACK[from + "EUR"] || 1) / (FX_FALLBACK[to + "EUR"] || 1));
   return (data.fxCache[key] = r);
 }
-function applyCurrency() { data.rows.forEach(r => (r.v = r.rep * rate(r.date.slice(0, 7), r.repCur, dash.cur))); }
+// every amount converts once, straight from the currency it actually moved in
+function applyCurrency() { data.rows.forEach(r => { const m = r.date.slice(0, 7); r.v = SYMBOL[r.cur] ? r.amount * rate(m, r.cur, dash.cur) : r.rep * rate(m, r.repCur, dash.cur); }); }
 // a balance on a date, from each row's own currency, at that date's rate
 function balance(to, fn, ents = scopeEntities()) {
   const byCur = {};
@@ -1157,7 +1158,8 @@ function cell(tab, i, j, o = {}) {
 }
 function edit(td, tab, i, j) {
   if (td.dataset.editing) return; td.dataset.editing = "1";
-  const before = (tab.raw[i] || [])[j]; const input = el("input"); input.value = before == null ? "" : before;
+  const raw = (tab.raw[i] || [])[j], shown = (tab.display[i] || [])[j];
+  const before = typeof raw === "string" && raw.startsWith("=") ? raw : shown; const input = el("input"); input.value = before == null ? "" : before;
   td.textContent = ""; td.append(input); input.focus(); input.setSelectionRange(input.value.length, input.value.length);
   let done = false;
   const finish = save => {
@@ -1179,7 +1181,7 @@ function renderTransactions(tab, c0, cols) {
 
   const search = el("input", "box"); search.type = "search"; search.placeholder = "search"; search.value = txFilter.text;
   const mk = (label, values, key) => { const s = el("select", "box"); s.append(new Option(label, "")); values.forEach(v => s.append(new Option(v, v))); s.value = txFilter[key] || ""; s.onchange = () => { txFilter[key] = s.value; if (key === "entity") txFilter.entities = null; draw(); }; return s; };
-  const entities = [...new Set(data.rows.map(r => r.entity))].sort(), accounts = [...new Set(data.rows.map(r => r.account))].sort();
+  const real = data.rows.filter(r => !r.synthetic), entities = [...new Set(real.map(r => r.entity))].sort(), accounts = [...new Set(real.map(r => r.account))].sort();
   const cats = [...new Set(data.cats.concat(data.rows.map(r => r.category)))].filter(Boolean).sort();
   const count = el("span", "count");
   head.append(search, mk("all entities", entities, "entity"), mk("all accounts", accounts, "account"), mk("all categories", cats, "category"));
@@ -1190,26 +1192,23 @@ function renderTransactions(tab, c0, cols) {
   let t; search.oninput = () => { clearTimeout(t); t = setTimeout(() => { txFilter.text = search.value; draw(); }, 150); };
 
   const hdr = tab.display[data.head] || [];
+  // what each column is, in the order shown. stream, group and the book-currency amount stay in the sheet but not here
+  const colsShown = [["date", c.date], ["account", c.account, "pick"], ["entity", c.entity, "pick"], ["merchant", c.merchant], ["reference", c.reference], ["amount", c.amount, "num"], ["currency", c.currency], ["usd", -1, "num"], ["category", c.category, "cat"], ["receipt", c.receipt, "receipt"]];
   function draw() {
     grid.innerHTML = ""; $("#more").innerHTML = ""; if (more) more.disconnect();
-    const shownCols = []; for (let j = c0; j < cols; j++) if (j !== c.group) shownCols.push(j);
-    const thead = el("thead"), tr = el("tr"); shownCols.forEach(j => tr.append(el("th", j === c.amount || j === c["reporting amount"] ? "num" : null, hdr[j] || ""))); thead.append(tr); grid.append(thead);
+    const thead = el("thead"), tr = el("tr"); colsShown.forEach(([name, , kind]) => tr.append(el("th", kind === "num" ? "num" : null, name))); thead.append(tr); grid.append(thead);
     const list = txMatches(txFilter, tab);
     count.textContent = list.length.toLocaleString("en-GB") + (list.length === 1 ? " transaction" : " transactions");
     const body = el("tbody"); grid.append(body);
-    let shown = 0;
+    let shown = 0, lastY = "", lastM = "";
+    const span = colsShown.length;
     const page = () => {
       const frag = document.createDocumentFragment();
       list.slice(shown, shown + 300).forEach(r => {
-        const row = el("tr");
-        for (const j of shownCols) {
-          if (j === c.category) {
-            const td = el("td"); const s = el("select", "cat"); cats.forEach(v => s.append(new Option(v, v))); s.value = r.category;
-            s.onchange = () => { writeCell(tab, r.i, j, s.value).then(() => { buildModel(); }); };
-            td.append(s); row.append(td);
-          } else row.append(cell(tab, r.i, j, { right: j === c.amount || j === c["reporting amount"], colour: true, kind: "data" }));
-        }
-        frag.append(row);
+        const y = r.date.slice(0, 4), m = r.date.slice(0, 7);
+        if (y !== lastY) { const h = el("tr", "sep year"), td = el("td", null, y); td.colSpan = span; h.append(td); frag.append(h); lastY = y; }
+        if (m !== lastM) { const h = el("tr", "sep month"), td = el("td", null, MONTHS[+m.slice(5) - 1]); td.colSpan = span; h.append(td); frag.append(h); lastM = m; }
+        frag.append(txRow(tab, r, colsShown, cats, entities, accounts));
       });
       body.append(frag); shown += 300;
       if (shown >= list.length && more) more.disconnect();
@@ -1220,6 +1219,38 @@ function renderTransactions(tab, c0, cols) {
     more.observe(sentinel);
   }
   draw();
+}
+
+// one transaction row: dropdowns for account, entity and category, links for receipts, a faint flag where a receipt is expected but missing
+const NO_RECEIPT_NEEDED = ["payment fees", "bank fees", "transfer fees"];
+function receiptExpected(r) { return (r.entity !== "personal" && r.group === "cost" && !NO_RECEIPT_NEEDED.includes(r.category)) || r.category === "business costs paid personally"; }
+function receiptLink(raw, shown) {
+  const m = /^=HYPERLINK\(\s*"([^"]+)"/i.exec(String(raw || "")), url = m ? m[1] : /^https:\/\//.test(String(shown || raw || "")) ? String(shown || raw) : "";
+  if (!url || !/^https:\/\//.test(url)) return null;
+  return { url, label: /mail\.google/.test(url) ? "gmail" : /drive\.google|docs\.google/.test(url) ? "drive" : "link" };
+}
+const CAT_HUE = { "client work": 135, program: 150, affiliate: 165, "other income": 120, income: 135, salary: 135, dividends: 160, team: 210, software: 230, "ads & marketing": 260, "professional fees": 280, training: 300, "travel & meals": 25, travel: 25, "eating out": 35, groceries: 90, equipment: 190, rent: 0, bills: 15, transport: 45, shopping: 320, entertainment: 340, lifestyle: 300, "payment fees": 50, "bank fees": 50, "transfer fees": 50, "director pay": 270, "director's loan": 270, dividends_: 0, intercompany: 200, "own transfer": 200, transfers: 200, "opening balance": 200, "corporation tax": 10, vat: 10, paye: 10, check: 55, "business costs paid personally": 285, "other costs": 40, other: 40 };
+function txRow(tab, r, colsShown, cats, entities, accounts) {
+  const row = el("tr"), d = tab.display[r.i] || [], raw = tab.raw[r.i] || [];
+  colsShown.forEach(([name, j, kind]) => {
+    const td = el("td");
+    if (kind === "pick" || kind === "cat") {
+      const opts = kind === "cat" ? cats : name === "entity" ? entities : accounts, sl = el("select", kind === "cat" ? "cat tag" : "cat");
+      opts.forEach(v => sl.append(new Option(kind === "cat" ? catName(v) : v, v))); sl.value = kind === "cat" ? r.category : name === "entity" ? r.entity : r.account;
+      if (kind === "cat") sl.style.setProperty("--h", CAT_HUE[r.category] != null ? CAT_HUE[r.category] : 40);
+      sl.onchange = () => { writeCell(tab, r.i, j, sl.value).then(() => { buildModel(); if (kind === "cat") sl.style.setProperty("--h", CAT_HUE[sl.value] != null ? CAT_HUE[sl.value] : 40); }); };
+      td.append(sl);
+    } else if (name === "usd") {
+      td.className = "num " + (r.v < 0 ? "neg" : "pos"); td.textContent = (r.v < 0 ? "-" : "") + Math.abs(r.v).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    } else if (kind === "receipt") {
+      const link = receiptLink(raw[j], d[j]);
+      td.className = "receipt";
+      if (link) { const a = el("a", null, link.label); a.href = link.url; a.target = "_blank"; a.rel = "noopener"; td.append(a); }
+      else { td.textContent = d[j] || ""; td.classList.add("edit"); if (!d[j] && receiptExpected(r)) td.classList.add("need"); td.onclick = () => edit(td, tab, r.i, j); }
+    } else { const x = cell(tab, r.i, j, { right: kind === "num", colour: true, kind: "data" }); if (name === "merchant" || name === "reference") { x.classList.add("clip"); x.title = x.textContent; } return row.append(x); }
+    row.append(td);
+  });
+  return row;
 }
 
 /* ---------- shell ---------- */

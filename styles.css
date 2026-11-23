@@ -232,3 +232,21 @@ input.inline { width: 110px; height: 24px; padding: 0 4px; border: 0; outline: 2
 .tasks-text { display: block; width: 100%; min-height: 120px; padding: 8px 0; border: 0; border-top: 1px solid var(--hair); background: none; color: var(--ink); font: inherit; line-height: 1.6; resize: none; overflow: hidden; }
 .tasks-text:focus { outline: 0; border-top-color: var(--ink); }
 .grid tr.flash td { background: var(--yellow) !important; color: #1a1917; }
+
+/* transactions */
+.grid.tx { width: 100%; }
+.grid.tx td, .grid.tx th { padding-right: 18px; }
+.grid.tx td select { field-sizing: content; }
+.grid.tx td:last-child, .grid.tx th:last-child { padding-right: 0; }
+.grid.tx tr.sep td { height: auto; border-bottom: 0; background: none !important; }
+.grid.tx tr.sep.year td { padding-top: 22px; font-weight: 700; }
+.grid.tx tr.sep.month td { padding-top: 12px; padding-bottom: 2px; font-style: italic; }
+.grid.tx tr.sep:first-child td { padding-top: 10px; }
+.grid select.cat { max-width: 100%; }
+.grid td select.cat.tag { padding: 0 6px; background: hsl(var(--h) 70% 92%); color: #26241f; }
+html.dark .grid td select.cat.tag { background: hsl(var(--h) 22% 22%); color: var(--ink); }
+.grid td.receipt { min-width: 120px; }
+.grid td.receipt.need { background: rgba(255, 255, 0, 0.22); }
+html.dark .grid td.receipt.need { background: rgba(255, 255, 0, 0.12); }
+.grid tbody tr:hover td.receipt.need { background: rgba(255, 255, 0, 0.3); }
+.grid.tx td.clip { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
