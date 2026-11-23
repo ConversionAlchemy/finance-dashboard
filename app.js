@@ -8,7 +8,6 @@ const SCOPE = "https://www.googleapis.com/auth/drive.file";
 const SHEETS = "https://sheets.googleapis.com/v4/spreadsheets/";
 const FILE_KEY = "ca-finance-file";
 const VIEW_KEY = "ca-finance-view";
-const CHART_KEY = "ca-finance-chart";
 const SKIP_TABS = ["dashboard"];          // the sheet's own dashboard tab; this app's dashboard replaces it
 const HIDE_TABS = ["tasks"];             // loaded for needs attention, not shown as a tab
 const FEE_CATS = ["payment fees", "transfer fees", "bank fees"];
@@ -398,7 +397,7 @@ function renderDashboard() {
   renderSummary(rg);
   renderMonthChart(rg);
   renderFlow(rg);
-  renderDates();
+  renderFilings();
   renderCash(rg);
   renderAttention();
 }
@@ -430,7 +429,9 @@ function renderMonthChart(rg) {
   const max = niceMax(Math.max(1, ...series.map(s => Math.max(s.inc, s.cost))));
   const chart = el("div");
   host.replaceChildren(chart);
-  svgBox(chart, 250, W => {
+  const fyStart = dash.fy, fyEnd = iso(monthEnd(addMonths(start, 11)));
+  const dated = upcomingFilings();
+  svgBox(chart, 280, W => {
     const L = 40, base = 190, y = v => base - v / max * 180, slot = (W - L) / 12; let s = "";
     [0, 0.25, 0.5, 0.75, 1].forEach(t => { const v = max * t; s += '<line x1="' + L + '" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="' + (t ? "#ecebe7" : "#26241f") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (t ? short(v) : "0") + "</text>"; });
     series.forEach((d, k) => {
@@ -439,8 +440,14 @@ function renderMonthChart(rg) {
         + '<rect x="' + (x + bw + 2) + '" y="' + y(d.cost) + '" width="' + bw + '" height="' + (base - y(d.cost)) + '" fill="' + RED + '"/></g>'
         + '<text x="' + x + '" y="' + (base + 20) + '" ' + F + ">" + d.label + "</text>";
       if (d.started && (d.inc || d.cost)) { const n = d.inc - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" fill="' + (n < 0 ? RTEXT : GTEXT) + '">' + (n < 0 ? "" : "+") + short(n) + "</text>"; }
-      s += '<rect class="hit" x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="250" fill="transparent" data-month="' + d.m + '" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|revenue " + money(d.inc) + "|costs " + money(d.cost) + "|" + (d.inc - d.cost < 0 ? "loss " : "profit ") + money(Math.abs(d.inc - d.cost))) + '"/>';
+      s += '<rect class="hit" x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="245" fill="transparent" data-month="' + d.m + '" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|revenue " + money(d.inc) + "|costs " + money(d.cost) + "|" + (d.inc - d.cost < 0 ? "loss " : "profit ") + money(Math.abs(d.inc - d.cost))) + '"/>';
     });
+    // filing dates along the bottom: a dot at each target inside this year, the rest counted at the right
+    const ay = 264, xd = dstr => { const d = new Date(dstr + "T00:00:00"), k = (d.getFullYear() - start.getFullYear()) * 12 + d.getMonth() - start.getMonth(); return L + (k + (d.getDate() - 1) / monthEnd(d).getDate()) * slot; };
+    s += '<line x1="' + L + '" x2="' + W + '" y1="' + ay + '" y2="' + ay + '" stroke="#e8e6e1"/>';
+    const inYear = dated.filter(g => g.when >= fyStart && g.when <= fyEnd), later = dated.filter(g => g.when > fyEnd).reduce((a, g) => a + g.items.length, 0);
+    inYear.forEach(g => { const xx = xd(g.when); s += '<circle cx="' + xx + '" cy="' + ay + '" r="6" fill="' + (g.soon ? "#ffff00" : "#26241f") + '" stroke="#26241f"/><rect x="' + (xx - 10) + '" y="' + (ay - 10) + '" width="20" height="20" fill="transparent" data-tip="' + esc(g.tip) + '"/>'; });
+    if (later) { const tip = dated.filter(g => g.when > fyEnd).map(g => g.tip).join("| |"); s += '<text x="' + W + '" y="' + (ay + 5) + '" ' + F + ' text-anchor="end" data-tip="' + esc(tip) + '">→ ' + later + " in " + (+fyEnd.slice(0, 4) + 1) + "</text>"; }
     return s;
   });
   const lg = el("div", "legend"); lg.innerHTML = '<span><span class="sw" style="background:' + GREEN + '"></span>revenue</span><span><span class="sw" style="background:' + RED + '"></span>costs</span>';
@@ -467,7 +474,6 @@ function streamMargins(rg) {
 }
 /* revenue and costs in one box: a list in two groups on the left, one chart on the right that follows the selection */
 const BAR_REDS = [RED, "#ff7a57", "#ff9d82", "#ffbba8", "#ffd6ca", "#ffe9e2"];
-const PIE_REDS = [0, 1, 2, 4, 5, 6].map(i => PASTEL[i]);
 function renderFlow(rg) {
   const list = $("#flowList"), detail = $("#flowDetail");
   const streams = streamMargins(rg), costRows = sel(rg, isCost);
@@ -515,12 +521,9 @@ function renderFlow(rg) {
       onclick: it.others ? () => goTransactions(f.key ? { category: f.key } : { group: "cost" }) : f.key ? () => goTransactions({ category: f.key, text: it.label }) : () => go("cost", it.label) }));
     items.total = { label: f.key || "all costs", v: sum };
   }
-  let cost = 0; items.forEach(it => { it.c = dash.chart === "pie" ? (it.keep ? "#bfe6b9" : PIE_REDS[cost++ % 6]) : (it.keep ? GREEN : BAR_REDS[Math.min(cost++, 5)]); });
+  let cost = 0; items.forEach(it => { it.c = it.keep ? GREEN : BAR_REDS[Math.min(cost++, 5)]; });
 
-  const hd = el("div", "detail-hd"), sw = el("div", "seg small");
-  ["bar", "pie"].forEach(m => { const b = el("button", null, m); b.type = "button"; b.setAttribute("aria-pressed", (dash.chart || "bar") === m); b.onclick = () => { dash.chart = m; try { localStorage.setItem(CHART_KEY, m); } catch {} renderFlow(rg); }; sw.append(b); });
-  hd.append(el("i", null, title), sw);
-  detail.replaceChildren(hd, dash.chart === "pie" ? donut(items, rg) : splitBar(items, rg));
+  detail.replaceChildren(el("i", "mt", title), splitBar(items, rg));
   if (!items.length) detail.append(el("p", "empty", "nothing in this period"));
 }
 
@@ -543,36 +546,6 @@ function splitBar(items, rg) {
   items.forEach(it => key.append(lead(it.label, it.value || money(it.v), { swatch: it.c, onclick: it.onclick })));
   if (rg.months > 1) key.append(lead("per month", money((items.total ? items.total.v : whole) / monthsElapsed(rg)), { italic: true, cls: "total" }));
   return wrap;
-}
-
-/* one donut, used for revenue and costs: percentages in the slices, total in the middle, key with leaders,
-   and the google sheets hover where the slice under the mouse (or its key row) lifts with a shadow */
-function donut(items, rg) {
-  const pie = el("div", "pie"), key = el("div");
-  const sum = items.total ? items.total.v : items.reduce((a, it) => a + Math.max(0, it.v), 0);
-  const whole = items.reduce((a, it) => a + Math.max(0, it.v), 0);
-  let a0 = -Math.PI / 2, p = "";
-  items.forEach((it, k) => {
-    const v = Math.max(0, it.v), frac = whole ? v / whole : 0, a1 = a0 + frac * 2 * Math.PI, R = 96, r = 56, lg = a1 - a0 > Math.PI ? 1 : 0;
-    if (frac > 0) {
-      const pt = (rr, a) => (100 + rr * Math.cos(a)).toFixed(2) + "," + (100 + rr * Math.sin(a)).toFixed(2);
-      const label = Math.round(frac * 100) < 1 ? "<1%" : Math.round(frac * 100) + "%";
-      p += '<g class="slice" data-k="' + k + '" data-tip="' + esc(it.label + "|" + money(v) + "|" + label) + '">' + (frac > 0.9999 ? '<circle cx="100" cy="100" r="76" fill="none" stroke="' + it.c + '" stroke-width="40"/>'
-        : '<path d="M' + pt(R, a0) + " A" + R + "," + R + " 0 " + lg + " 1 " + pt(R, a1) + " L" + pt(r, a1) + " A" + r + "," + r + " 0 " + lg + " 0 " + pt(r, a0) + ' Z" fill="' + it.c + '" stroke="#fff" stroke-width="2"/>');
-      const am = (a0 + a1) / 2, fs = Math.max(6, Math.min(13, frac * 2 * Math.PI * 76 / (label.length * 0.6), 40 / (label.length * 0.6)));
-      p += '<text x="' + (100 + 76 * Math.cos(am)).toFixed(1) + '" y="' + (100 + 76 * Math.sin(am) + fs * 0.35).toFixed(1) + '" font-size="' + fs.toFixed(1) + '" text-anchor="middle" font-family="PT Sans, Arial, sans-serif" fill="#26241f" pointer-events="none">' + label + "</text></g>";
-    }
-    const row = lead(it.label, it.value || money(v), { swatch: it.c, onclick: it.onclick }); row.dataset.k = k; key.append(row);
-    a0 = a1;
-  });
-  const when = { year: "this year", quarter: "this quarter", month: "this month" }[rg.kind];
-  p += '<text x="100" y="98" ' + F + ' text-anchor="middle">' + esc(money(sum)) + '</text><text x="100" y="117" font-size="14" font-style="italic" text-anchor="middle" font-family="PT Sans, Arial, sans-serif" fill="#26241f">' + when + "</text>";
-  pie.innerHTML = '<svg viewBox="0 0 200 200" width="190" height="190">' + p + "</svg>"; pie.append(key);
-  const lift = k => { const g = pie.querySelector('.slice[data-k="' + k + '"]'); pie.querySelectorAll(".slice").forEach(x => x.classList.toggle("on", x === g)); if (g) { const all = pie.querySelectorAll(".slice"); all[all.length - 1].after(g); } };
-  pie.querySelectorAll(".slice").forEach(g => { const it = items[g.dataset.k]; if (it.onclick) { g.classList.add("hit"); g.addEventListener("click", it.onclick); } g.addEventListener("mouseenter", () => lift(g.dataset.k)); g.addEventListener("mouseleave", () => lift(-1)); });
-  key.querySelectorAll(".lead[data-k]").forEach(r => { r.addEventListener("mouseenter", () => lift(r.dataset.k)); r.addEventListener("mouseleave", () => lift(-1)); });
-  if (rg.months > 1) key.append(lead("per month", money(sum / monthsElapsed(rg)), { italic: true, cls: "total" }));
-  return pie;
 }
 
 function renderCash(rg) {
@@ -627,41 +600,33 @@ function filingEstimate(f) {
   const yr = /preliminary/.test(f.name) ? y - 1 : y;
   return taxFor("ie ltd", { from: yr + "-01-01", to: yr + "-12-31", months: 12 });
 }
-function renderDates() {
-  const host = $("#dates"), today = iso(new Date());
-  const ents = scopeEntities();
-  const list = filingDates().filter(f => ents.includes(f.who) && (f.target || f.deadline) && !(f.deadline && f.deadline < today));
-  if (!list.length) { host.replaceChildren(); return; }
-  const start = new Date(today.slice(0, 7) + "-01T00:00:00"), end = addMonths(start, 12);
-  const groups = new Map();
-  list.forEach(f => {
-    let when = f.target || f.deadline, late = when < today;
-    if (late) when = today;
-    if (new Date(when + "T00:00:00") >= end) return;
+function upcomingFilings() {
+  const today = iso(new Date()), ents = scopeEntities(), groups = new Map();
+  filingDates().filter(f => ents.includes(f.who) && (f.target || f.deadline) && !(f.deadline && f.deadline < today)).forEach(f => {
+    let when = f.target || f.deadline; const late = when < today; if (late) when = today;
     const g = groups.get(when) || { when, items: [], late: false }; g.items.push(f); g.late = g.late || late; groups.set(when, g);
   });
-  const box = el("div", "chart"), rows = el("div", "date-list");
-  host.replaceChildren(el("i", "mt", "dates"), box, rows);
   const gs = [...groups.values()].sort((a, b) => a.when < b.when ? -1 : 1);
-  gs.forEach(g => g.items.forEach(i => {
-    const soon = g.late || (new Date(g.when + "T00:00:00") - new Date(today + "T00:00:00")) / 864e5 <= 30, e = filingEstimate(i);
-    const v = [el("span", soon ? "hl" : null, g.late ? "target passed" : longDate(i.target || i.deadline))];
-    if (i.deadline) v.push(document.createTextNode(", due " + longDate(i.deadline)));
-    if (e != null && e > 0.5) v.push(document.createTextNode(", about " + money(e)));
-    rows.append(lead(i.name + (dash.scope === "all" || dash.scope === "companies" ? " (" + i.who + ")" : ""), v));
-  }));
-  svgBox(box, 50, W => {
-    const L = 6, R = W - 6, span = end - start, x = d => L + (new Date(d + "T00:00:00") - start) / span * (R - L);
-    let s = '<line x1="' + L + '" x2="' + R + '" y1="22" y2="22" stroke="#26241f"/>';
-    for (let k = 0; k <= 12; k++) { const m = addMonths(start, k), xx = x(iso(m)); s += '<line x1="' + xx + '" x2="' + xx + '" y1="18" y2="26" stroke="#26241f"/>'; if (k < 12) s += '<text x="' + (xx + 4) + '" y="46" ' + F + ">" + MONTHS[m.getMonth()] + (m.getMonth() === 0 ? " " + String(m.getFullYear()).slice(2) : "") + "</text>"; }
-    gs.forEach((g, k) => {
-      const xx = x(g.when), soon = g.late || (new Date(g.when + "T00:00:00") - new Date(today + "T00:00:00")) / 864e5 <= 30;
-      const tip = g.items.map(i => { const e = filingEstimate(i); return i.name + " (" + i.who + ")|" + (g.late ? "target passed " + longDate(i.target) : "target " + longDate(i.target || i.deadline)) + (i.deadline ? "|deadline " + longDate(i.deadline) : "") + (e != null ? "|about " + money(e) + " tax" : "") + (i.notes ? "|" + i.notes : ""); }).join("| |");
-      s += '<circle cx="' + xx + '" cy="22" r="6" fill="' + (soon ? "#ffff00" : "#26241f") + '" stroke="#26241f"/>'
-        + '<rect x="' + (xx - 10) + '" y="8" width="20" height="28" fill="transparent" data-tip="' + esc(tip) + '"/>';
-    });
-    return s;
+  gs.forEach(g => {
+    g.soon = g.late || (new Date(g.when + "T00:00:00") - new Date(today + "T00:00:00")) / 864e5 <= 30;
+    g.tip = g.items.map(i => { const e = filingEstimate(i); return i.name + " (" + i.who + ")|" + (g.late ? "target passed " + longDate(i.target) : "target " + longDate(i.target || i.deadline)) + (i.deadline ? "|deadline " + longDate(i.deadline) : "") + (e != null && e > 0.5 ? "|about " + money(e) + " tax" : "") + (i.notes ? "|" + i.notes : ""); }).join("| |");
   });
+  return gs;
+}
+function renderFilings() {
+  const box = $("#filingsBox"), gs = upcomingFilings(), fl = data.filings;
+  box.replaceChildren(el("b", "hd", "filings"));
+  if (!gs.length) box.append(el("p", "empty", "nothing coming up"));
+  gs.forEach(g => g.items.forEach(i => {
+    const e = filingEstimate(i), row = el("div", "filing");
+    const top = el("div", "filing-top"); top.append(el("span", null, i.name + (dash.scope === "all" || dash.scope === "companies" ? " (" + i.who + ")" : "")), el("span", g.soon ? "hl" : null, g.late ? "target passed" : longDate(i.target || i.deadline)));
+    row.append(top);
+    const more = [i.deadline ? "due " + longDate(i.deadline) : "", e != null && e > 0.5 ? "about " + money(e) : ""].filter(Boolean).join(", ");
+    if (more) row.append(el("i", null, more));
+    box.append(row);
+  }));
+  let due = 0; if (fl) fl.display.forEach(r => (r || []).forEach(v => { if (["to do", "confirm"].includes(lc(v))) due++; }));
+  if (fl) { const b = el("button", "more", due + " to do or confirm"); b.type = "button"; b.onclick = () => showView(fl.name); box.append(b); }
 }
 
 /* ---------- needs attention ---------- */
@@ -681,7 +646,6 @@ function attentionItems() {
   if (fl) fl.display.forEach(r => (r || []).forEach(v => { if (["to do", "confirm"].includes(lc(v))) due++; }));
   return [
     { n: check, text: (check === 1 ? "transaction" : "transactions") + " to categorise", urgent: true, go: () => goTransactions({ category: "check", from: "", to: "" }) },
-    { n: due, text: (due === 1 ? "filing" : "filings") + " to do or confirm", urgent: true, go: () => fl && showView(fl.name) },
     { n: wrong, text: (wrong === 1 ? "cost" : "costs") + " paid from the wrong account", go: () => goTransactions({ only: "wrong" }) },
     { n: noReceipt, text: (noReceipt === 1 ? "cost" : "costs") + " with no receipt", go: () => goTransactions({ only: "receipt", entities: cos.length > 1 ? cos : null, entity: cos.length === 1 ? cos[0] : "" }) }
   ].filter(i => i.n > 0 || i.urgent);
@@ -929,7 +893,7 @@ function start() {
     tabs.append(b);
   });
   $("#openInSheets").href = "https://docs.google.com/spreadsheets/d/" + encodeURIComponent(book.id) + "/edit";
-  try { const v = JSON.parse(localStorage.getItem(VIEW_KEY)) || {}; dash.scope = v.scope || dash.scope; dash.cur = v.cur || dash.cur; dash.chart = localStorage.getItem(CHART_KEY) || "bar"; } catch {}
+  try { const v = JSON.parse(localStorage.getItem(VIEW_KEY)) || {}; dash.scope = v.scope || dash.scope; dash.cur = v.cur || dash.cur; } catch {}
   applyCurrency();
   showView(view);
 }
