@@ -115,7 +115,6 @@ main[hidden] { display: none; }
 /* the chosen option stays white with a 2px off-black ring just outside it, the same as keyboard focus */
 .seg button[aria-pressed="true"] { position: relative; z-index: 1; background: var(--card); font-weight: 700; outline: 2px solid var(--ink); outline-offset: 2px; }
 .seg button:hover { color: var(--grey); }
-.range { margin-left: auto; font-style: italic; }
 .filters #pdfButton { margin-left: auto; }
 
 .sec { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 24px; padding: 18px 20px; margin-bottom: 12px; background: var(--card); }
@@ -142,12 +141,8 @@ main[hidden] { display: none; }
 .step button:disabled { color: var(--hair); cursor: default; }
 .step label { display: flex; align-items: center; border-left: 1px solid var(--hair); }
 .figs { margin-top: 18px; }
-.dot { display: inline-block; width: 13px; height: 13px; margin-right: 8px; vertical-align: -2px; border-radius: 50%; border: 1.5px solid var(--ink); background: var(--card); }
-.dot.filed { border-color: var(--grey); background: var(--grey); }
 .mt.group { margin-top: 14px; }
 .hit { cursor: pointer; }
-.seg-part.hit:hover rect { opacity: 0.8; }
-.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 4px 0 0; }
 
 /* needs attention */
 .side-col { align-self: start; display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 12px; }
@@ -202,7 +197,6 @@ main[hidden] { display: none; }
 .sheet tr.labels td { font-style: italic; border-bottom-color: var(--ink); }
 .sheet tr.title:hover td, .sheet tr.labels:hover td { background: none; }
 
-.tip { position: fixed; z-index: 40; padding: 6px 9px; background: var(--ink); color: var(--card); line-height: 1.35; white-space: nowrap; pointer-events: none; }
 
 @media (max-width: 1100px) { main { grid-template-columns: minmax(0, 1fr); } html.fit .side-col { display: none; } .side-col { position: static; margin-top: 0; } .split { grid-template-columns: minmax(0, 1fr); gap: 20px; } }
 @media (max-width: 700px) { .filters { position: static; padding-left: 12px; } .fig { padding: 0 10px 0 0; border-left: 0; } .sec { grid-template-columns: minmax(0, 1fr); gap: 10px; } .top { padding: 0 12px; } main { padding: 12px 12px 0; } }
@@ -249,19 +243,17 @@ input.inline { box-sizing: border-box; width: 110px; height: 26px; padding: 0 6p
 .modal-hd { display: flex; align-items: center; gap: 14px; padding: 18px 20px 14px; border-bottom: 1px solid var(--hair); }
 .modal-hd i { margin-right: auto; }
 .modal-body { flex: 1; min-height: 0; overflow: auto; padding: 0 20px 20px; }
-.sw.faded { opacity: 0.4; }
 .contents { display: contents; }
 .step .contents button:first-child { border-left: 0; }
 .step .prev { border-left: 1px solid var(--hair) !important; }
 .figs .g, #summary .g { color: var(--gtext); }
-.dash-key { display: inline-block; width: 16px; margin-right: 8px; vertical-align: 3px; border-top: 2px dashed var(--rtext); }
 #filingsBox .chip { margin: 4px 0 6px; height: 28px; background: var(--soft); }
 #filingsBox .chip::after { content: "  \00d7"; }
 .chart g.sub { cursor: pointer; }
 /* a filing's ball turns solid off-black on hover, its number in the card colour */
-.chart g.sub:hover circle { fill: var(--ink) !important; stroke: var(--ink) !important; }
-.chart g.sub:hover text { fill: var(--card) !important; }
-.chart g.sub:hover line { stroke: var(--ink) !important; }
+.chart g.sub:hover > circle { fill: var(--ink) !important; stroke: var(--ink) !important; }
+.chart g.sub:hover > text { fill: var(--card) !important; }
+.chart g.sub:hover > line { stroke: var(--ink) !important; }
 .filing-group { margin-top: 15px; }
 .filing-group:first-of-type { margin-top: 0; }
 .lead.filing { padding: 2px 0; }
@@ -333,10 +325,9 @@ table.plan th { padding: 0 0 6px; font-weight: 400; font-style: italic; text-ali
 table.plan th.num, table.plan td.num { width: 16%; text-align: right; }
 table.plan td { padding: 3px 0; }
 table.plan tr.head td { padding-top: 18px; }
-table.plan tr.head td:first-child { font-weight: 700; }
+table.plan tr.head td:first-child { font-style: italic; }
 table.plan tr.head.line td { background-position: 0 calc(100% - 10px); }
 table.plan tr.head:first-child td { padding-top: 4px; }
-table.plan tr.note td { font-style: italic; }
 table.plan tr.total td { padding-top: 6px; }
 table.plan tr.total td.num { border-top: 1px solid var(--ink); }
 table.plan tr.line td, table.plan tr.note td { background-image: radial-gradient(circle, var(--dots) 0.7px, transparent 1px); background-size: 4px 4px; background-repeat: repeat-x; background-position: 0 calc(50% + 3px); }
@@ -355,19 +346,18 @@ table.plan td.editable:hover { color: var(--grey); }
 
 /* the watermark at the foot of every screen: plain text, not a link */
 .mark { padding: 14px 0 16px; text-align: center; font-weight: 400; color: var(--grey); user-select: none; }
-.legend .sw.hatch { background: repeating-linear-gradient(45deg, var(--hatch) 0 1px, transparent 1px 4px), repeating-linear-gradient(-45deg, var(--hatch) 0 1px, transparent 1px 4px); }
-.legend .ln { display: inline-block; width: 18px; margin-right: 8px; vertical-align: 4px; }
 /* forecast: the table and, beside it, plan against actual as bars */
 .fc-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 3fr); gap: 48px; align-items: start; }
 @media (max-width: 1100px) { .fc-grid { grid-template-columns: minmax(0, 1fr); } }
-.chart .col .hov { display: none; }
-.chart .col:hover .hov { display: inline; }
+.chart .col .hov, .chart .sub .hov { display: none; }
+.chart .col:hover .hov, .chart .sub:hover .hov { display: inline; }
 html.fit, html.fit body { overflow: hidden; }
 html.fit .sheet-scroll { max-height: none !important; }
 /* on the sheet tabs the table runs nearly to the foot of the window, the watermark just below it */
 .grid.tx tr.gaprow td { height: 30px; padding: 0; background: var(--card) !important; background-image: none !important; }
 .grid.tx tr.gaprow.year td { height: 60px; }
 .grid.tx tbody tr.gaprow:hover td { background: var(--card) !important; }
+.grid.tx tr.filler td, .grid.tx tbody tr.filler:hover td { padding: 0; background: var(--card) !important; background-image: none !important; }
 .sheet-head .chips { display: flex; flex-wrap: wrap; gap: 8px; flex-basis: 100%; }
 
 /* waterfall and column charts */
@@ -380,8 +370,7 @@ html.fit .sheet-scroll { max-height: none !important; }
 .wf-zero { position: absolute; left: 0; right: 0; border-top: 1px dotted var(--dots); }
 .wf-lab { display: flex; flex-direction: column; align-items: flex-start; padding: 8px 8px 0; text-align: left; }
 .wf-lab span { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wf-lab span.nm { white-space: normal; overflow-wrap: break-word; }
+.wf-lab span.nm { white-space: normal; overflow-wrap: normal; }
 .wf-col.link { cursor: pointer; }
 .wf-col.link:hover .wf-lab, .wf-col.link:hover .wf-lab *, .wf-col.link:hover .wf-pct { color: var(--grey); }
 .view > .sec:last-child { margin-bottom: 0; }
-.legend .sw.hatch.plan { --hatch: #00C601; }
