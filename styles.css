@@ -85,16 +85,20 @@ main { padding: 12px 24px 40px; }
 .dash { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 12px; }
 .filters { position: sticky; top: var(--top-h); z-index: 15; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 18px 20px 14px; background: var(--card); border-bottom: 1px solid var(--hair); }
 .filters > b { width: 130px; margin-right: 16px; }
-.filters .box, .filters .seg { height: 40px; }
-.filters .box { padding: 0 16px; }
-.filters .seg button { padding: 0 16px; }
-.filters .box select, .filters .step select { height: 38px; padding: 0 8px 0 12px; }
-#scopePick { width: 170px; }
+/* one control size everywhere: dashboard, forecast, transactions and the sheet tabs */
+.filters .box, .filters .seg, .sheet-head .box, .sheet-head .seg { height: 40px; }
+.filters .box, .sheet-head .box { padding: 0 16px; }
+.filters .seg button, .sheet-head .seg button { padding: 0 16px; }
+.filters .box select, .filters .step select { height: 38px; padding: 0 8px 0 0; }
+.filters .box:has(> select) { padding: 0 0 0 16px; }
+.filters .step select { padding-left: 16px !important; }
+.filters .box > select { width: 100%; }
+.filters .box:has(> #scopePick) { width: 170px; }
 .step.on label { background: var(--soft); }
 .seg.mode { height: 32px; }
 .sec.summary { padding-top: 18px; }
 .box { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; background: var(--card); border: 1px solid var(--hair); white-space: nowrap; }
-.box select, .step select { height: 30px; padding: 0 4px; border: 0; background: none; font-weight: 700; cursor: pointer; }
+.box select, .step select { height: 30px; padding: 0 4px; border: 0; background: none; font-weight: 400; cursor: pointer; }
 .box select:hover, .step select:hover, button.box:hover { color: var(--grey); }
 #monthChip::after { content: "  \00d7"; }
 .seg { display: inline-flex; height: 32px; background: var(--card); border: 1px solid var(--hair); }
@@ -149,8 +153,8 @@ main { padding: 12px 24px 40px; }
 /* sheet tabs: the same hierarchy as the dashboard. labels italic, data plain, negatives red, a grid you can type in */
 .sheet-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 18px 20px 14px; background: var(--card); border-bottom: 1px solid var(--hair); }
 .sheet-head:empty { display: none; }
-.sheet-head input.box { width: 240px; padding: 0 10px; }
-.sheet-head select.box { width: 170px; padding: 0 8px 0 12px; cursor: pointer; }
+.sheet-head input.box { width: 240px; padding: 0 16px; }
+.sheet-head select.box { width: 170px; padding: 0 8px 0 16px; cursor: pointer; }
 .sheet-head select.box:hover, .sheet-head .chip:hover { color: var(--grey); }
 .sheet-head .chip { background: var(--soft); }
 .sheet-head .chip::after { content: "  \00d7"; }
@@ -220,7 +224,7 @@ main { padding: 12px 24px 40px; }
 /* forecast */
 .fc .filters #fcSheet { margin-left: auto; }
 .fc .filters label.box { gap: 8px; font-style: italic; }
-.fc .filters input[type="month"] { height: 36px; border: 0; background: none; font: inherit; font-style: normal; font-weight: 700; }
+.fc .filters input[type="month"] { height: 38px; border: 0; background: none; font: inherit; font-style: normal; font-weight: 400; }
 .fc #fcInRev, .fc #fcInCost { align-self: start; }
 .fc #fcInCost .mt, .fc #fcInRev .mt { margin-bottom: 6px; }
 .editable { cursor: text; }
@@ -262,7 +266,7 @@ input.inline { width: 110px; height: 24px; padding: 0 4px; border: 0; outline: 2
 /* transactions */
 .sheet-head.tx-head .count { margin: 0 auto 0 0; }
 .colwrap { position: relative; }
-.cols { display: inline-flex; align-items: center; justify-content: center; width: 40px; padding: 0; cursor: pointer; }
+.sheet-head .box.cols { display: inline-flex; align-items: center; justify-content: center; width: 40px; padding: 0; cursor: pointer; }
 .cols svg { width: 18px; height: 18px; }
 .cols:hover, .cols[aria-expanded="true"] { color: var(--grey); }
 .colmenu .hd { display: block; padding: 4px 14px 6px; font-style: italic; }

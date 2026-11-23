@@ -1322,7 +1322,16 @@ function renderTransactions(tab, c0, cols) {
   });
   colBtn.onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; colBtn.setAttribute("aria-expanded", !menu.hidden); };
   document.addEventListener("click", e => { if (!menu.contains(e.target) && !colBtn.contains(e.target)) { menu.hidden = true; colBtn.setAttribute("aria-expanded", false); } });
-  const colWrap = el("span", "colwrap"); colWrap.append(colBtn, menu); head.append(colWrap);
+  // export: the transactions as filtered, every column, as a csv file
+  const exp = el("button", "box", "export"); exp.type = "button";
+  exp.onclick = () => {
+    const list = txMatches(txFilter, tab), bal = runningBalance(txFilter), q = v => { const x = v == null ? "" : String(v); return /[",\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; };
+    const lines = [["date", "account", "entity", "merchant", "reference", "amount", "currency", "usd", "balance", "category", "receipt"].join(",")]
+      .concat(list.map(r => { const d = tab.display[r.i] || [], link = receiptLink((tab.raw[r.i] || [])[c.receipt], d[c.receipt]);
+        return [r.date, r.account, r.entity, d[c.merchant], d[c.reference], r.amount.toFixed(2), r.cur, r.v.toFixed(2), bal.has(r.i) ? bal.get(r.i).toFixed(2) : "", r.category, link ? link.url : d[c.receipt] || ""].map(q).join(","); }));
+    const a = el("a"); a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" })); a.download = "transactions " + iso(new Date()) + ".csv"; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  };
+  const colWrap = el("span", "colwrap"); colWrap.append(colBtn, menu); head.append(exp, colWrap);
   head.prepend(count); head.classList.add("tx-head");
   const fmt2 = v => (v < 0 ? "-" : "") + Math.abs(v).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const PAGE = 120;
