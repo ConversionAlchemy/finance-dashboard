@@ -105,7 +105,6 @@ main[hidden] { display: none; }
 .step.on label { position: relative; z-index: 1; background: var(--card); outline: 2px solid var(--ink); outline-offset: 2px; }
 .seg.mode { height: 32px; }
 .sec.summary { padding-top: 18px; }
-.sec.summary .split { grid-template-columns: 9fr 16fr; gap: 56px; }
 .box { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; background: var(--card); border: 1px solid var(--hair); white-space: nowrap; }
 .box select, .step select { height: 30px; padding: 0 4px; border: 0; background: none; font-weight: 400; cursor: pointer; }
 .box select:hover, .step select:hover, button.box:hover { color: var(--grey); }
@@ -125,7 +124,7 @@ main[hidden] { display: none; }
 .fig { display: grid; align-content: start; gap: 3px; padding: 0 14px; border-left: 1px solid var(--hair); }
 .fig:first-child { padding-left: 0; border-left: 0; }
 
-.split { display: grid; grid-template-columns: 5fr 7fr; gap: 36px; }
+.split { display: grid; grid-template-columns: 9fr 14fr; gap: 48px; }
 .mt { display: block; margin-bottom: 6px; }
 .lead { display: flex; gap: 8px; align-items: baseline; white-space: nowrap; }
 .lead > span:first-child { overflow: hidden; text-overflow: ellipsis; }
