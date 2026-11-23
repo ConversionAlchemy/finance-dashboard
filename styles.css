@@ -50,7 +50,7 @@ button { cursor: pointer; }
 /* dashboard layout */
 main { padding: 12px 24px 40px; }
 .dash { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 12px; }
-.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.filters { position: sticky; top: var(--top-h); z-index: 15; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: -12px 0 12px; padding: 12px 0; background: var(--bg); }
 .box { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; background: #fff; border: 1px solid var(--hair); white-space: nowrap; }
 .box select { height: 30px; border: 0; background: none; font-weight: 700; cursor: pointer; }
 button.box:hover { color: var(--grey); }
