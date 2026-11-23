@@ -23,31 +23,40 @@
     </div>
   </section>
 
+  <header class="top" id="top" hidden>
+    <div class="brand">
+      <button class="brand-button" id="brandButton" type="button" aria-haspopup="true" aria-expanded="false"><b id="brandName">finance</b> ▾</button>
+      <div class="menu" id="brandMenu" hidden>
+        <button type="button" id="pickFile">open file</button>
+        <a id="openInSheets" target="_blank" rel="noopener">open in google sheets</a>
+        <button type="button" id="signOut">sign out</button>
+      </div>
+      <span class="status" id="status"></span>
+    </div>
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+  </header>
+
   <main id="app" hidden>
-    <section id="viewDashboard" class="view" hidden>
-      <div class="dash-head">
-        <label class="select-wrap"><span class="visually-label">show</span><select id="scopePick"></select></label>
-        <div class="segmented" id="currencyPick" role="group" aria-label="currency"></div>
-        <label class="select-wrap"><span class="visually-label">year</span><select id="yearPick"></select></label>
-        <div class="segmented" id="quarterPick" role="group" aria-label="quarter"></div>
-        <button class="chip" id="monthChip" type="button" hidden></button>
-        <p class="dash-range" id="rangeLabel"></p>
+    <section id="viewDashboard" class="view dash" hidden>
+      <div class="dash-main">
+        <div class="filters">
+          <label class="box"><select id="scopePick" aria-label="show"></select></label>
+          <div class="seg" id="currencyPick" role="group" aria-label="currency"></div>
+          <label class="box"><select id="yearPick" aria-label="year"></select></label>
+          <div class="seg" id="quarterPick" role="group" aria-label="period"></div>
+          <button class="box" id="monthChip" type="button" hidden></button>
+          <span class="range" id="rangeLabel"></span>
+          <button class="box" id="pdfButton" type="button">statements pdf</button>
+        </div>
+        <div class="sec"><b>summary</b><div id="summary"></div></div>
+        <div class="sec"><b>income</b><div>
+          <div id="monthChart"></div>
+          <div class="split"><div class="pick" id="streamList"></div><div id="streamDetail"></div></div>
+        </div></div>
+        <div class="sec"><b>costs</b><div class="split"><div class="pick" id="costList"></div><div id="costDetail"></div></div></div>
+        <div class="sec"><b>cash</b><div class="split"><div class="pick" id="cashList"></div><div id="cashDetail"></div></div></div>
       </div>
-      <div class="tiles" id="tiles"></div>
-      <div class="grid-2">
-        <div class="panel wide"><p class="panel-title">income and costs by month</p><div id="monthChart" class="chart-box"></div></div>
-        <div class="panel"><p class="panel-title">costs by category</p><div id="costBars"></div></div>
-      </div>
-      <div class="grid-3">
-        <div class="panel"><p class="panel-title">fees</p><div id="feesPanel"></div></div>
-        <div class="panel" id="marginPanelWrap"><p class="panel-title">contribution margin</p><div id="marginPanel"></div></div>
-        <div class="panel"><p class="panel-title">recurring costs</p><div id="recurringPanel"></div></div>
-      </div>
-      <div class="grid-3">
-        <div class="panel"><p class="panel-title">cash at period end</p><div id="cashPanel"></div></div>
-        <div class="panel" id="taxPanelWrap"><p class="panel-title">tax</p><div id="taxPanel"></div></div>
-        <div class="panel"><p class="panel-title">needs attention</p><div id="attentionPanel"></div></div>
-      </div>
+      <aside class="side" id="attention"></aside>
     </section>
     <section id="viewSheet" class="view" hidden>
       <div class="sheet-head" id="sheetHead"></div>
@@ -55,16 +64,7 @@
     </section>
   </main>
 
-  <nav class="sheet-tabs" id="tabbar" hidden>
-    <div class="tab-list" id="tabs" role="tablist"></div>
-    <div class="bar-right">
-      <span class="status" id="status"></span>
-      <a class="text-link" id="openInSheets" target="_blank" rel="noopener">open in google sheets</a>
-      <button class="text-link" id="pickFile" type="button">open file</button>
-      <button class="text-link" id="signOut" type="button">sign out</button>
-    </div>
-  </nav>
-
+  <div id="print" class="print"></div>
   <div class="tip" id="tip" hidden></div>
   <script src="app.js"></script>
 </body>
