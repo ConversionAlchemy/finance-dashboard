@@ -179,7 +179,8 @@ main { padding: 12px 24px 40px; }
 .grid tbody tr:hover td { --rowbg: var(--bg); }
 .grid tbody tr:hover td.y { background: var(--yellow); }
 .grid td.edit { cursor: text; }
-.grid td input { width: 100%; min-width: 80px; height: 26px; padding: 0 4px; border: 0; outline: 2px solid var(--ink); background: var(--card); }
+/* editing a cell: a white box with a 1px off-black line all the way round, drawn inside the cell so nothing cuts it off */
+.grid td input { box-sizing: border-box; width: 100%; min-width: 80px; height: 26px; padding: 0 6px; border: 1px solid var(--ink); outline: 0; background: var(--card); }
 .grid td select.cat { height: 26px; padding: 0; border: 0; background: transparent; cursor: pointer; }
 .grid td select.cat:hover { color: var(--grey); }
 .grid a { color: var(--ink); }
@@ -229,7 +230,7 @@ main { padding: 12px 24px 40px; }
 .fc #fcInCost .mt, .fc #fcInRev .mt { margin-bottom: 6px; }
 .editable { cursor: text; }
 .editable:hover { color: var(--grey); }
-input.inline { width: 110px; height: 24px; padding: 0 4px; border: 0; outline: 2px solid var(--ink); text-align: right; }
+input.inline { box-sizing: border-box; width: 110px; height: 26px; padding: 0 6px; border: 1px solid var(--ink); outline: 0; background: var(--card); text-align: right; }
 
 /* transactions pop-up */
 .modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 40px 24px; background: var(--veil); }
@@ -266,8 +267,10 @@ input.inline { width: 110px; height: 24px; padding: 0 4px; border: 0; outline: 2
 /* transactions */
 .sheet-head.tx-head .count { margin: 0 auto 0 0; }
 .colwrap { position: relative; }
-.sheet-head .box.cols { display: inline-flex; align-items: center; justify-content: center; width: 40px; padding: 0; cursor: pointer; }
-.cols svg { width: 18px; height: 18px; }
+/* icon buttons (columns, export): square, the same size everywhere */
+.box.icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; padding: 0 !important; cursor: pointer; }
+.box.icon svg { width: 18px; height: 18px; }
+.box.icon:hover { color: var(--grey); }
 .cols:hover, .cols[aria-expanded="true"] { color: var(--grey); }
 .colmenu .hd { display: block; padding: 4px 14px 6px; font-style: italic; }
 .colmenu label.fixed { color: var(--grey); cursor: default; }

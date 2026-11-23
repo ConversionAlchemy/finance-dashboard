@@ -32,6 +32,7 @@ const PERIODS = [["all", "all time"], ["fy", "this year"], ["3m", "last 3 months
 const FX_FALLBACK = { GBPEUR: 1.17, USDEUR: 0.92, EURGBP: 0.855, USDGBP: 0.78 };
 const TX_CLEAR = { text: "", entity: "", entities: null, category: "", account: "", group: "", only: null, from: "", to: "" };
 const txFilter = Object.assign({}, TX_CLEAR);
+const EXPORT_ICON = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M7 7.5H4.5v9h11v-9H13"/><path d="M10 12.5V2.5M6.5 6L10 2.5 13.5 6"/></svg>';
 const COLS_KEY = "ca-finance-columns-2";
 const TX_OPTIONAL = ["account", "entity", "reference", "amount"], TX_DEFAULT_OFF = ["account", "entity", "amount"];
 const txHidden = new Set((() => { try { return JSON.parse(localStorage.getItem(COLS_KEY)) || null; } catch { return null; } })() || TX_DEFAULT_OFF);
@@ -1188,7 +1189,7 @@ function openTx(f, title) {
     const tr = el("tr"), d = tab.display[r.i] || [];
     tr.append(txt(null, r.date), txt(null, r.account), txt("clip", d[c.merchant] || ""), txt("clip", d[c.reference] || ""), txt("num " + (r.amount < 0 ? "neg" : "pos"), (r.amount < 0 ? "-" : "") + (SYMBOL[r.cur] || r.cur + " ") + Math.abs(r.amount).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })));
     const td = el("td");
-    pickCell(td, r.category, catName, cats, v => { txmDirty = true; writeCell(tab, r.i, c.category, v).then(() => buildModel()); }, true);
+    pickCell(td, r.category, catName, () => catOptions(r, cats), v => { txmDirty = true; writeCell(tab, r.i, c.category, v).then(() => buildModel()); }, true);
     tr.append(td); body.append(tr);
   });
   grid.append(thead, body);
@@ -1311,7 +1312,7 @@ function renderTransactions(tab, c0, cols) {
 
   // the columns: the optional ones are switched on and off from the columns menu, remembered between visits
   const ALL = [["date", c.date, "date"], ["account", c.account, "pick"], ["entity", c.entity, "pick"], ["merchant", c.merchant, "text"], ["reference", c.reference, "text"], ["amount", c.amount, "amt"], ["usd", -1, "num"], ["balance", -2, "num"], ["receipt", c.receipt, "receipt"], ["category", c.category, "cat"]];
-  const colBtn = el("button", "box cols"); colBtn.type = "button"; colBtn.title = "columns"; colBtn.setAttribute("aria-label", "columns");
+  const colBtn = el("button", "box cols icon"); colBtn.type = "button"; colBtn.title = "columns"; colBtn.setAttribute("aria-label", "columns");
   colBtn.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="3.5" width="15" height="13"/><line x1="7.5" y1="3.5" x2="7.5" y2="16.5"/><line x1="12.5" y1="3.5" x2="12.5" y2="16.5"/></svg>';
   const menu = el("div", "colmenu"); menu.hidden = true; menu.append(el("i", "hd", "columns"));
   // every column is listed; the ones the table needs are ticked and greyed out, like shopify
@@ -1323,7 +1324,7 @@ function renderTransactions(tab, c0, cols) {
   colBtn.onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; colBtn.setAttribute("aria-expanded", !menu.hidden); };
   document.addEventListener("click", e => { if (!menu.contains(e.target) && !colBtn.contains(e.target)) { menu.hidden = true; colBtn.setAttribute("aria-expanded", false); } });
   // export: the transactions as filtered, every column, as a csv file
-  const exp = el("button", "box", "export"); exp.type = "button";
+  const exp = el("button", "box icon"); exp.type = "button"; exp.title = "export"; exp.setAttribute("aria-label", "export"); exp.innerHTML = EXPORT_ICON;
   exp.onclick = () => {
     const list = txMatches(txFilter, tab), bal = runningBalance(txFilter), q = v => { const x = v == null ? "" : String(v); return /[",\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; };
     const lines = [["date", "account", "entity", "merchant", "reference", "amount", "currency", "usd", "balance", "category", "receipt"].join(",")]
@@ -1407,12 +1408,29 @@ const CAT_HUE = { "client work": 135, program: 150, affiliate: 165, "other incom
 // a value in a cell sits in a span over the row's dotted line, which it hides behind itself
 function txt(cls, text) { const td = el("td", cls); td.append(el("span", null, text == null ? "" : String(text))); return td; }
 // account, entity and category show as text; the dropdown is only built when clicked, which keeps long lists fast
+// category choices for a row: only that side's categories (business or personal), under the group headings from the sheet
+const PERSONAL_ONLY = ["rent", "bills", "groceries", "eating out", "transport", "travel", "shopping", "entertainment", "lifestyle", "salary", "transfers", "business costs paid personally", "income"];
+const BUSINESS_ONLY = ["client work", "program", "affiliate", "team", "software", "ads & marketing", "professional fees", "training", "equipment", "travel & meals", "payment fees", "bank fees", "transfer fees", "director pay", "director's loan", "intercompany", "own transfer", "corporation tax", "vat", "paye", "other costs", "other income"];
+const GROUP_LABEL = { income: "income", cost: "costs", director: "director", transfer: "transfers", tax: "tax" };
+function catOptions(r, cats) {
+  const personal = r.entity === "personal";
+  const list = cats.filter(c => c !== "check" && (personal ? !BUSINESS_ONLY.includes(c) : !PERSONAL_ONLY.includes(c)));
+  if (!list.includes(r.category)) list.push(r.category);
+  if (!list.includes("to categorise")) list.push("to categorise");
+  const groups = new Map();
+  list.forEach(c => { const g = c === "to categorise" || c === "check" ? "to sort" : GROUP_LABEL[data.catGroup[c]] || "other"; groups.set(g, (groups.get(g) || []).concat([c])); });
+  const order = ["to sort", "income", "costs", "director", "tax", "transfers", "other"];
+  return [...groups.entries()].sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0])).map(([g, cs]) => [g, cs.sort()]);
+}
 function pickCell(td, value, label, opts, onpick, tag) {
   const show = v => { td.replaceChildren(); const sp = el("span", tag ? "tag" : "pick", label(v)); if (tag) sp.style.setProperty("--h", CAT_HUE[v] != null ? CAT_HUE[v] : 40); td.append(sp); };
   show(value);
   td.onclick = () => {
     if (td.querySelector("select")) return;
-    const sl = el("select", tag ? "cat tag" : "cat"); opts.forEach(v => sl.append(new Option(label(v), v))); sl.value = value;
+    const sl = el("select", tag ? "cat tag" : "cat");
+    const list = typeof opts === "function" ? opts() : opts;
+    list.forEach(v => { if (Array.isArray(v)) { const og = el("optgroup"); og.label = v[0]; v[1].forEach(x => og.append(new Option(label(x), x))); sl.append(og); } else sl.append(new Option(label(v), v)); });
+    sl.value = value;
     if (tag) sl.style.setProperty("--h", CAT_HUE[value] != null ? CAT_HUE[value] : 40);
     td.replaceChildren(sl); sl.focus(); try { sl.showPicker(); } catch {}
     sl.onchange = () => { value = sl.value; onpick(value); show(value); };
@@ -1426,7 +1444,7 @@ function txRow(tab, r, cols, cats, entities, accounts, bal, fmt2) {
     if (kind === "pick" || kind === "cat") {
       td = el("td", "c-" + name);
       const write = v => writeCell(tab, r.i, j, v).then(() => buildModel());
-      if (kind === "cat") pickCell(td, r.category, catName, cats, write, true);
+      if (kind === "cat") pickCell(td, r.category, catName, () => catOptions(r, cats), write, true);
       else pickCell(td, name === "entity" ? r.entity : r.account, v => v, name === "entity" ? entities : accounts, write);
     } else if (name === "usd") td = txt("c-usd num " + (r.v < 0 ? "neg" : "pos"), fmt2(r.v));
     else if (name === "balance") td = txt("c-balance num", bal.has(r.i) ? fmt2(bal.get(r.i)) : "");
