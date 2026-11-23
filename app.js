@@ -368,6 +368,29 @@ function lead(label, value, o = {}) {
   return d;
 }
 
+/* ---------- stepping through periods: a year, a quarter or a month at a time ---------- */
+function nextPeriod(dir, fys = fyList()) {
+  const has = fy => fys.some(f => f.start === fy);
+  if (dash.month) {
+    const m = addMonths(new Date(dash.month + "-01T00:00:00"), dir), fy = iso(fyStartFor(iso(m), scopeYe()));
+    return has(fy) ? { fy, q: 0, month: iso(m).slice(0, 7) } : null;
+  }
+  if (dash.q) {
+    let q = dash.q + dir, fy = dash.fy;
+    if (q < 1) { q = 4; fy = iso(addMonths(new Date(fy + "T00:00:00"), -12)); }
+    if (q > 4) { q = 1; fy = iso(addMonths(new Date(fy + "T00:00:00"), 12)); }
+    return has(fy) ? { fy, q, month: null } : null;
+  }
+  const fy = iso(addMonths(new Date(dash.fy + "T00:00:00"), 12 * dir));
+  return has(fy) ? { fy, q: 0, month: null } : null;
+}
+function stepPeriod(dir) { const n = nextPeriod(dir); if (n) { Object.assign(dash, n); renderDashboard(); } }
+document.addEventListener("keydown", e => {
+  if (!data || view !== "dashboard" || e.metaKey || e.ctrlKey || e.altKey || /input|select|textarea/i.test((e.target.tagName || ""))) return;
+  if (e.key === "ArrowLeft") { e.preventDefault(); stepPeriod(-1); }
+  if (e.key === "ArrowRight") { e.preventDefault(); stepPeriod(1); }
+});
+
 /* ---------- dashboard ---------- */
 function renderDashboard() {
   if (!SCOPES.some(([k]) => k === dash.scope)) dash.scope = "all";
@@ -394,6 +417,10 @@ function renderDashboard() {
 
   const rg = range();
   $("#rangeLabel").textContent = longDate(rg.from) + " – " + longDate(rg.to);
+  const fyl = (fys.find(f => f.start === dash.fy) || {}).label || "";
+  $("#periodLabel").textContent = dash.month ? MONTHS[+dash.month.slice(5) - 1] + " " + dash.month.slice(0, 4) : fyl + (dash.q ? " · q" + dash.q : "");
+  document.querySelectorAll(".step .prev").forEach(b => { b.disabled = !nextPeriod(-1, fys); b.onclick = () => stepPeriod(-1); });
+  document.querySelectorAll(".step .next").forEach(b => { b.disabled = !nextPeriod(1, fys); b.onclick = () => stepPeriod(1); });
   renderSummary(rg);
   renderMonthChart(rg);
   renderFlow(rg);
@@ -431,7 +458,7 @@ function renderMonthChart(rg) {
   host.replaceChildren(chart);
   const fyStart = dash.fy, fyEnd = iso(monthEnd(addMonths(start, 11)));
   const dated = upcomingFilings();
-  svgBox(chart, 280, W => {
+  svgBox(chart, 250, W => {
     const L = 40, base = 190, y = v => base - v / max * 180, slot = (W - L) / 12; let s = "";
     [0, 0.25, 0.5, 0.75, 1].forEach(t => { const v = max * t; s += '<line x1="' + L + '" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="' + (t ? "#ecebe7" : "#26241f") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (t ? short(v) : "0") + "</text>"; });
     series.forEach((d, k) => {
@@ -442,15 +469,16 @@ function renderMonthChart(rg) {
       if (d.started && (d.inc || d.cost)) { const n = d.inc - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" fill="' + (n < 0 ? RTEXT : GTEXT) + '">' + (n < 0 ? "" : "+") + short(n) + "</text>"; }
       s += '<rect class="hit" x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="245" fill="transparent" data-month="' + d.m + '" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|revenue " + money(d.inc) + "|costs " + money(d.cost) + "|" + (d.inc - d.cost < 0 ? "loss " : "profit ") + money(Math.abs(d.inc - d.cost))) + '"/>';
     });
-    // filing dates along the bottom: a dot at each target inside this year, the rest counted at the right
-    const ay = 264, xd = dstr => { const d = new Date(dstr + "T00:00:00"), k = (d.getFullYear() - start.getFullYear()) * 12 + d.getMonth() - start.getMonth(); return L + (k + (d.getDate() - 1) / monthEnd(d).getDate()) * slot; };
-    s += '<line x1="' + L + '" x2="' + W + '" y1="' + ay + '" y2="' + ay + '" stroke="#e8e6e1"/>';
-    const inYear = dated.filter(g => g.when >= fyStart && g.when <= fyEnd), later = dated.filter(g => g.when > fyEnd).reduce((a, g) => a + g.items.length, 0);
-    inYear.forEach(g => { const xx = xd(g.when); s += '<circle cx="' + xx + '" cy="' + ay + '" r="6" fill="' + (g.soon ? "#ffff00" : "#26241f") + '" stroke="#26241f"/><rect x="' + (xx - 10) + '" y="' + (ay - 10) + '" width="20" height="20" fill="transparent" data-tip="' + esc(g.tip) + '"/>'; });
-    if (later) { const tip = dated.filter(g => g.when > fyEnd).map(g => g.tip).join("| |"); s += '<text x="' + W + '" y="' + (ay + 5) + '" ' + F + ' text-anchor="end" data-tip="' + esc(tip) + '">→ ' + later + " in " + (+fyEnd.slice(0, 4) + 1) + "</text>"; }
+    // filing targets sit on the chart's own baseline, as dots at their dates
+    const xd = dstr => { const d = new Date(dstr + "T00:00:00"), k = (d.getFullYear() - start.getFullYear()) * 12 + d.getMonth() - start.getMonth(); return L + (k + (d.getDate() - 1) / monthEnd(d).getDate()) * slot; };
+    dated.filter(g => g.when >= fyStart && g.when <= fyEnd).forEach(g => { const xx = xd(g.when); s += '<circle cx="' + xx + '" cy="' + base + '" r="6" fill="' + (g.soon ? "#ffff00" : "#26241f") + '" stroke="#26241f"/><rect x="' + (xx - 10) + '" y="' + (base - 10) + '" width="20" height="20" fill="transparent" data-tip="' + esc(g.tip) + '"/>'; });
     return s;
   });
   const lg = el("div", "legend"); lg.innerHTML = '<span><span class="sw" style="background:' + GREEN + '"></span>revenue</span><span><span class="sw" style="background:' + RED + '"></span>costs</span>';
+  if (dated.length) {
+    const later = dated.filter(g => g.when > fyEnd), n = later.reduce((a, g) => a + g.items.length, 0);
+    lg.insertAdjacentHTML("beforeend", '<span><span class="dot"></span>filing target</span>' + (n ? '<span data-tip="' + esc(later.map(g => g.tip).join("| |")) + '">→ ' + n + " after " + esc(longDate(fyEnd)) + "</span>" : ""));
+  }
   host.append(lg);
   host.querySelectorAll(".hit").forEach(b => b.addEventListener("click", () => { dash.month = dash.month === b.dataset.month ? null : b.dataset.month; renderDashboard(); }));
 }
