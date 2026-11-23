@@ -250,3 +250,18 @@ html.dark .grid td select.cat.tag { background: hsl(var(--h) 22% 22%); color: va
 html.dark .grid td.receipt.need { background: rgba(255, 255, 0, 0.12); }
 .grid tbody tr:hover td.receipt.need { background: rgba(255, 255, 0, 0.3); }
 .grid.tx td.clip { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+
+/* plan against actual */
+table.plan { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table.plan th { padding: 0 0 6px; font-weight: 400; font-style: italic; text-align: left; }
+table.plan th.num, table.plan td.num { width: 16%; text-align: right; }
+table.plan td { padding: 3px 0; }
+table.plan tr.head td { padding-top: 18px; font-weight: 700; }
+table.plan tr.head:first-child td { padding-top: 4px; }
+table.plan tr.note td { font-style: italic; }
+table.plan tr.total td { padding-top: 6px; }
+table.plan tr.total td.num { border-top: 1px solid var(--ink); }
+table.plan td.editable { cursor: text; }
+table.plan td.editable:hover { color: var(--grey); }
+.fc .filters label.box { margin-left: auto; }
+.fc .filters #fcSheet { margin-left: 0; }

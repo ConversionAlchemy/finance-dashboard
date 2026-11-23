@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=PT+Sans:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1795458429">
+  <link rel="stylesheet" href="styles.css?v=1795458520">
 </head>
 <body>
 
@@ -57,13 +57,12 @@
     <section id="viewForecast" class="view fc" hidden>
       <div class="filters">
         <b id="fcTitle">forecast</b>
-        <label class="box">starts <input type="month" id="fcStart" aria-label="start month"></label>
+        <div class="seg step" id="fcPeriod" role="group" aria-label="period"></div>
+        <label class="box">plan starts <input type="month" id="fcStart" aria-label="plan start month"></label>
         <button class="box" id="fcSheet" type="button">sheet</button>
       </div>
-      <div class="sec"><b>inputs</b><div class="split"><div id="fcInRev"></div><div id="fcInCost"></div></div></div>
+      <div class="sec"><span></span><div id="fcTable"></div></div>
       <div class="sec"><b>next 12 months</b><div><div id="fcChart" class="chart"></div><div id="fcFigs" class="figs"></div></div></div>
-      <div class="sec"><b id="fcProdTitle">by product</b><div class="split"><div class="pick" id="fcProdList"></div><div id="fcProdDetail"></div></div></div>
-      <div class="sec"><b>plan against actual</b><div id="fcActual"></div></div>
     </section>
     <section id="viewSheet" class="view" hidden>
       <div class="sheet-head" id="sheetHead"></div>
@@ -79,6 +78,6 @@
   </div>
   <div id="print" class="print"></div>
   <div class="tip" id="tip" hidden></div>
-  <script src="app.js?v=1795458429"></script>
+  <script src="app.js?v=1795458520"></script>
 </body>
 </html>

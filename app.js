@@ -789,6 +789,7 @@ function fcPlan(inp) {
     products: [{ label: "retainers", v: ret, steps: [["team", team], ["payment fees", ret * rate]] }, { label: "program", v: prog, steps: [["ads", ads], ["payment fees", prog * rate]] }] };
 }
 function renderForecast() {
+  dash.scope = dash.mode === "personal" ? "personal" : (dash.co || "companies");
   const conf = fcConf(), inp = fcInputs(conf), t = tabByName("forecast"), personal = dash.mode === "personal", w = words();
   if (!inp) return;
   $("#fcTitle").textContent = conf.title;
@@ -797,21 +798,7 @@ function renderForecast() {
   sm.onchange = () => { if (/^\d{4}-\d{2}$/.test(sm.value)) saveInput(t, inp["start month"], sm.value + "-01", conf.col); };
   $("#fcSheet").onclick = () => { fc.sheet = true; showView("forecast"); };
 
-  // inputs: click a figure to change it; it saves to the forecast tab
-  const fmt = (x, kind) => kind === "pct" ? (Math.round(x * 1000) / 10) + "%" : kind === "count" ? String(Math.round(x * 100) / 100) : money(x);
-  conf.sides.forEach((side, n) => {
-    const box = $(n ? "#fcInCost" : "#fcInRev"); box.replaceChildren(el("i", "mt", side));
-    conf.inputs.filter(x => x[0] === side).forEach(([, key, label, kind]) => {
-      const cell = inp[key]; if (!cell) return;
-      const val = el("span", "editable", fmt(cell.v, kind));
-      val.onclick = () => {
-        const input = el("input", "inline"); input.value = kind === "pct" ? String(Math.round(cell.v * 1000) / 10) : String(cell.v); val.replaceChildren(input); input.focus(); input.select();
-        let done = false; const finish = ok => { if (done) return; done = true; const v = parseFloat(input.value.replace(/[^0-9.\-]/g, "")); if (ok && isFinite(v)) saveInput(t, cell, kind === "pct" ? v / 100 : v, conf.col); else val.textContent = fmt(cell.v, kind); };
-        input.onkeydown = e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); }; input.onblur = () => finish(true);
-      };
-      box.append(lead(label, [val]));
-    });
-  });
+  renderPlanTable(conf, inp, p, t);
 
   // the next 12 months from the start month; months that have started show what actually happened
   const today = iso(new Date()), ents = personal ? ["personal"] : ["ie ltd", "uk ltd"], months = [];
@@ -841,32 +828,105 @@ function renderForecast() {
     : [["revenue", p.rev * 12, "g", money(p.rev) + " a month"], ["costs", p.costs * 12, "r", money(p.costs) + " a month"], ["profit before tax", p.pbt * 12, p.pbt < 0 ? "r" : "g", p.rev > 0 ? pct(p.pbt / p.rev) + " of revenue" : ""], ["corporation tax", p.tax * 12, "r", money(p.tax) + " a month"], ["profit after tax", p.keep * 12, p.keep < 0 ? "r" : "g", money(p.keep) + " a month"]];
   $("#fcFigs").replaceChildren(...figs.map(([l, v, c, n]) => { const d = el("div", "fig"); d.append(el("i", null, l), el("span", c, money(v)), el("span", null, n)); return d; }));
 
-  // what each product brings in and costs (business), or where your income goes (personal)
-  $("#fcProdTitle").textContent = personal ? "where it goes" : "by product";
-  const list = $("#fcProdList"), detail = $("#fcProdDetail"), all = p.all;
-  all.margin = p.keep;
-  p.products.forEach(x => (x.margin = x.v - x.steps.reduce((a, s) => a + s[1], 0)));
-  const pick = p.products.find(x => x.label === fc.pick) || all;
-  list.replaceChildren(el("i", "mt", personal ? "source" : "product"));
-  if (personal) { list.append(lead(all.label, money(all.v), { sel: true })); p.sources.forEach(([l, v]) => list.append(lead(l, money(v)))); }
-  else [all].concat(p.products).forEach(x => list.append(lead(x.label, money(x.v) + (x.v > 0 ? " (" + pct(x.margin / x.v) + ")" : ""), { sel: x === pick, onclick: () => { fc.pick = x === all ? null : x.label; renderForecast(); } })));
-  const share = v => pick.v > 0 ? " (" + pct(v / pick.v) + ")" : "";
-  let k = 0;
-  const items = [{ label: pick.keep || "margin", v: Math.max(0, pick.margin), keep: true, c: GREEN, value: [el("span", pick.margin < 0 ? "r" : "g", money(pick.margin)), document.createTextNode(share(pick.margin))] }]
-    .concat(pick.steps.filter(s => s[1] > 0.5).map(([l, v]) => ({ label: l, v, c: BAR_REDS[Math.min(k++, 5)], value: [el("span", "r", money(-v)), document.createTextNode(share(v))] })));
-  items.total = { label: w.rev + " a month", v: pick.v };
-  const bar = splitBar(items, { months: 1 });
-  if (pick.label === "program" && p.sales > 0) bar.lastChild.append(lead("ads per sale", money(p.ads / p.sales), { italic: true, cls: "total" }));
-  detail.replaceChildren(el("i", "mt", pick.label), bar);
+}
+/* the plan next to what actually happened, line by line, for a month, the last 3 months or the year so far */
+const PT_MAP = { rent: ["rent"], bills: ["bills"], groceries: ["groceries"], "eating out": ["eating out"], transport: ["transport"], travel: ["travel", "travel & meals"] };
+function planRange() {
+  const thisMonth = new Date(iso(new Date()).slice(0, 7) + "-01T00:00:00");
+  if (fc.period === "3m") { const a = addMonths(thisMonth, -3); return { from: iso(a), to: iso(monthEnd(addMonths(a, 2))), n: 3, label: "last 3 months" }; }
+  if (fc.period === "year") { const a = new Date(thisMonth.getFullYear(), 0, 1); return { from: iso(a), to: iso(monthEnd(thisMonth)), n: thisMonth.getMonth() + 1, label: "this year" }; }
+  const m = new Date((fc.month || iso(thisMonth).slice(0, 7)) + "-01T00:00:00");
+  return { from: iso(m), to: iso(monthEnd(m)), n: 1, label: MONTHS[m.getMonth()] + " " + m.getFullYear() };
+}
+function renderPlanTable(conf, inp, p, t) {
+  const personal = dash.mode === "personal", rg = planRange(), n = rg.n, today = iso(new Date());
+  // period controls
+  const pp = $("#fcPeriod"); pp.innerHTML = "";
+  const cur = iso(new Date()).slice(0, 7), mm = fc.month || cur;
+  const step = d => { const m = addMonths(new Date(mm + "-01T00:00:00"), d); if (iso(m).slice(0, 7) <= cur) { fc.month = iso(m).slice(0, 7); fc.period = "month"; renderForecast(); } };
+  const prev = el("button", "prev", "‹"), lab = el("button", null, MONTHS[+mm.slice(5) - 1] + " " + mm.slice(0, 4)), next = el("button", "next", "›");
+  [prev, lab, next].forEach(b => (b.type = "button"));
+  prev.onclick = () => step(-1); next.onclick = () => step(1); next.disabled = mm >= cur; lab.onclick = () => { fc.period = "month"; renderForecast(); };
+  lab.setAttribute("aria-pressed", (fc.period || "month") === "month");
+  pp.append(prev, lab, next);
+  [["3m", "last 3 months"], ["year", "this year"]].forEach(([k, l]) => { const b = el("button", null, l); b.type = "button"; b.setAttribute("aria-pressed", fc.period === k); b.onclick = () => { fc.period = k; renderForecast(); }; pp.append(b); });
 
-  // plan against actual, for the months that have started
-  const ba = $("#fcActual"), done = months.filter(d => d.started), what = personal ? "saved or invested" : "profit", planned = personal ? p.keep : p.pbt;
-  ba.replaceChildren(el("i", "mt", "month"));
-  if (!done.length) ba.append(el("p", "empty", "the plan starts " + MONTHS[start.getMonth()] + " " + start.getFullYear()));
-  done.forEach(d => {
-    const act = d.inc - d.cost, diff = act - planned;
-    ba.append(lead(d.label + " " + d.m.slice(0, 4), [el("span", act < 0 ? "r" : "g", money(act)), document.createTextNode(" " + what + " against " + money(planned) + " planned ("), el("span", diff < 0 ? "r" : "g", (diff < 0 ? "" : "+") + money(diff)), document.createTextNode(")")]));
+  const ents = personal ? ["personal"] : ["ie ltd", "uk ltd"], rows = sel(rg, null, ents);
+  const sumCat = cats => -total(rows.filter(r => cats.includes(r.category) && (isCost(r) || r.category === "director pay")));
+  const sumInc = fn => total(rows.filter(r => isIncome(r) && fn(r)));
+  const g = k => (inp[k] || {}).v || 0;
+  const lines = [];  // [kind, label, plan, actual, good: "up"|"down", inputKey, inputKind]
+  if (personal) {
+    lines.push(["head", "income"]);
+    lines.push(["line", "salary", g("salary") * n, sumInc(r => r.category === "salary"), "up", "salary"]);
+    lines.push(["line", "dividends", g("dividends") * n, sumInc(r => r.category === "dividends"), "up", "dividends"]);
+    lines.push(["line", "other income", g("other income") * n, sumInc(r => r.category !== "salary" && r.category !== "dividends"), "up", "other income"]);
+    const ti = lines.slice(1).reduce((a, l) => a + l[2], 0), ta = lines.slice(1).reduce((a, l) => a + l[3], 0);
+    lines.push(["total", "total income", ti, ta, "up"]);
+    lines.push(["head", "spending"]);
+    const spendCats = [...new Set(rows.filter(isCost).map(r => r.category))], mapped = Object.values(PT_MAP).flat();
+    let tp = 0, tsp = 0;
+    FC.personal.inputs.filter(x => x[0] === "spending").forEach(([, key, label]) => {
+      const act = key === "everything else" ? sumCat(spendCats.filter(c => !mapped.includes(c))) : sumCat(PT_MAP[key] || [key]);
+      lines.push(["line", label, g(key) * n, act, "down", key]); tp += g(key) * n; tsp += act;
+    });
+    lines.push(["total", "total spending", tp, tsp, "down"]);
+    lines.push(["total", "balance", ti - tp, ta - tsp, "up"]);
+    const iv = data.investments;
+    if (iv) lines.push(["line", "invested", iv.monthly * n, iv.holdings.filter(h => h.date >= rg.from && h.date <= rg.to).reduce((a, h) => a + h.paid, 0), "up"]);
+  } else {
+    const ms = streamMargins(rg), sm = k => ms.find(x => x.label === k) || { v: 0, margin: 0 };
+    lines.push(["head", "revenue"]);
+    lines.push(["line", "retainers", g("retainer income") * n, sm("retainers").v, "up", "retainer income"]);
+    lines.push(["line", "program", g("program price") * g("program sales") * n, sm("program").v, "up"]);
+    lines.push(["note", "program price", g("program price"), null, "", "program price"]);
+    lines.push(["note", "program sales a month", g("program sales"), null, "", "program sales", "count"]);
+    lines.push(["line", "other revenue", 0, ms.filter(x => x.label !== "retainers" && x.label !== "program").reduce((a, x) => a + x.v, 0), "up"]);
+    const rp = (g("retainer income") + g("program price") * g("program sales")) * n, ra = ms.reduce((a, x) => a + x.v, 0);
+    lines.push(["total", "total revenue", rp, ra, "up"]);
+    lines.push(["head", "costs"]);
+    const salary = (fcInputs(FC.personal) || {}).salary;
+    const fees = ["payment fees", "bank fees", "transfer fees"], named = ["team", "ads & marketing", "software", "director pay", ...fees];
+    const costCats = [...new Set(rows.filter(r => isCost(r)).map(r => r.category))];
+    const cl = [["team", g("team") * n, sumCat(["team"]), "team"], ["ads", g("ad spend") * n, sumCat(["ads & marketing"]), "ad spend"], ["software", g("software") * n, sumCat(["software"]), "software"],
+      ["director pay", (salary ? salary.v : 0) * n, sumCat(["director pay"])], ["payment fees", rp * g("payment fees"), sumCat(fees)], ["other costs", g("other costs") * n, sumCat(costCats.filter(c => !named.includes(c))), "other costs"]];
+    cl.forEach(([l, pl, ac, key]) => { lines.push(["line", l, pl, ac, "down", key]); if (l === "payment fees") lines.push(["note", "payment fees, share of revenue", g("payment fees"), null, "", "payment fees", "pct"]); });
+    const cp = cl.reduce((a, x) => a + x[1], 0), ca = cl.reduce((a, x) => a + x[2], 0);
+    lines.push(["total", "total costs", cp, ca, "down"]);
+    const pbtP = rp - cp, pbtA = ra - ca, rate = g("corporation tax"), taxP = Math.max(0, pbtP) * rate, taxA = Math.max(0, pbtA) * rate;
+    lines.push(["total", "profit before tax", pbtP, pbtA, "up"]);
+    lines.push(["line", "corporation tax", taxP, taxA, "down"]);
+    lines.push(["note", "corporation tax rate", rate, null, "", "corporation tax", "pct"]);
+    lines.push(["total", "profit after tax", pbtP - taxP, pbtA - taxA, "up"]);
+  }
+  const tb = el("table", "plan"), th = el("tr"), w = personal ? ["", "budget", "actual", "left"] : ["", "plan", "actual", "difference"];
+  w.forEach((x, k) => th.append(el("th", k ? "num" : null, x))); tb.append(el("thead")); tb.firstChild.append(th);
+  const body = el("tbody");
+  const fmtIn = (x, kind) => kind === "pct" ? (Math.round(x * 1000) / 10) + "%" : kind === "count" ? String(Math.round(x * 100) / 100) : money(x);
+  lines.forEach(([kind, label, plan, act, good, key, ikind]) => {
+    const tr = el("tr", kind);
+    if (kind === "head") { const td = el("td", null, label); td.colSpan = 4; tr.append(td); return body.append(tr); }
+    tr.append(el("td", null, label));
+    const pc = el("td", "num", kind === "note" ? fmtIn(plan, ikind) : money(plan));
+    const cell = key && inp[key];
+    if (cell) {
+      pc.classList.add("editable");
+      pc.onclick = () => {
+        if (pc.querySelector("input")) return;
+        const input = el("input", "inline"); input.value = ikind === "pct" ? String(Math.round(cell.v * 1000) / 10) : String(cell.v); pc.replaceChildren(input); input.focus(); input.select();
+        let done = false; const finish = ok => { if (done) return; done = true; const v = parseFloat(input.value.replace(/[^0-9.\-]/g, "")); if (ok && isFinite(v)) saveInput(t, cell, ikind === "pct" ? v / 100 : v, conf.col); else renderForecast(); };
+        input.onkeydown = e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); }; input.onblur = () => finish(true);
+      };
+    }
+    tr.append(pc);
+    if (act == null) { tr.append(el("td"), el("td")); return body.append(tr); }
+    tr.append(el("td", "num", money(act)));
+    const diff = good === "down" ? plan - act : act - plan;
+    tr.append(el("td", "num " + (Math.abs(diff) < 0.5 ? "" : diff < 0 ? "r" : "g"), Math.abs(diff) < 0.5 ? "–" : (diff < 0 ? "−" : "+") + money(Math.abs(diff)).replace(/^−/, "")));
+    body.append(tr);
   });
+  tb.append(body);
+  $("#fcTable").replaceChildren(tb);
 }
 async function saveInput(tab, cell, value, col = 1) {
   if (!cell) return;
