@@ -156,17 +156,6 @@ async function writeCell(tab, row, col, value) {
     status("saved");
   } catch (e) { status(e.expired ? "signed out. sign in again to save." : e.message); }
 }
-async function setStrike(tab, row, col, on) {
-  ((tab.fmt[row] = tab.fmt[row] || [])[col] = Object.assign({}, (tab.fmt[row] || [])[col] || {}, { s: on }));
-  if (TEST) return;
-  status("saving");
-  try {
-    await api(SHEETS + book.id + ":batchUpdate", { method: "POST", body: JSON.stringify({ requests: [{ repeatCell: {
-      range: { sheetId: tab.sheetId, startRowIndex: row, endRowIndex: row + 1, startColumnIndex: col, endColumnIndex: col + 1 },
-      cell: { userEnteredFormat: { textFormat: { strikethrough: on } } }, fields: "userEnteredFormat.textFormat.strikethrough" } }] }) });
-    status("saved");
-  } catch (e) { status(e.expired ? "signed out. sign in again to save." : e.message); }
-}
 function setCell(tab, row, col, value, asDisplay) {
   for (const key of asDisplay ? ["display", "raw"] : ["raw"]) {
     const g = tab[key]; while (g.length <= row) g.push([]);
@@ -719,31 +708,33 @@ function upcomingFilings() {
   });
   return gs;
 }
-// filings: two columns, the filing and when to submit it on the left, its status on the right. the legal due date is on hover
-const FILING_STATUS = [["coming up", "coming up"], ["to do", "to do"], ["filed, to confirm", "filed"], ["done", "done"]];
+// filings: grouped under an italic heading (when to submit), each filing below it; red when it needs submitting now.
+// statuses are changed in the sheet, not here. clicking a filing opens its row on the filings tab
 function submitText(f, today = iso(new Date())) { const d = f.target || f.deadline; return !d ? "" : d < today ? "submit now" : "submit " + longDate(d); }
 function renderFilings() {
-  const box = $("#filingsBox"), fl = data.filings, today = iso(new Date()), ents = scopeEntities();
+  const box = $("#filingsBox"), fl = data.filings, today = iso(new Date()), ents = scopeEntities(), after = dash.filingsAfter;
   box.replaceChildren(el("b", "hd", "filings"));
-  const after = dash.filingsAfter;
-  const items = filingDates().filter(f => ents.includes(f.who) && f.status !== "done" && (!after || (f.target || f.deadline) > after));
   if (after) { const chip = el("button", "box chip", "after " + longDate(after)); chip.type = "button"; chip.onclick = () => { dash.filingsAfter = null; renderFilings(); }; box.append(chip); }
-  const key = f => f.target || f.deadline || "9999";
-  items.sort((a, b) => key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0);
+  const items = filingDates().filter(f => ents.includes(f.who) && f.status !== "done" && (!after || (f.target || f.deadline) > after));
+  const groupOf = f => f.status === "filed, to confirm" ? ["filed, to confirm", "3"] : (f.target || f.deadline) ? [submitText(f, today), (f.target || f.deadline) < today ? "0" : "1" + (f.target || f.deadline)] : f.status === "to do" ? ["to do", "2a"] : ["coming up", "2b"];
+  const groups = new Map();
+  items.forEach(f => { const [label, order] = groupOf(f); const g = groups.get(label) || { label, order, items: [] }; g.items.push(f); groups.set(label, g); });
   if (!items.length) box.append(el("p", "empty", "nothing to file"));
-  items.forEach(f => {
-    const row = el("div", "filing"), left = el("div"), when = f.target || f.deadline, filed = f.status === "filed, to confirm";
-    const soon = when && (when < today || (new Date(when + "T00:00:00") - new Date(today + "T00:00:00")) / 864e5 <= 31);
-    const nm = el("span", null, f.name + (ents.length > 1 ? " (" + f.who + ")" : ""));
-    nm.title = [f.deadline ? "due " + longDate(f.deadline) : "", f.notes].filter(Boolean).join("\n");
-    left.append(nm);
-    if (when && !filed) left.append(el("i", "filing-dates" + (soon ? " late" : ""), submitText(f, today)));
-    const st = el("select", "status"); FILING_STATUS.forEach(([v, l]) => st.append(new Option(l, v))); st.value = FILING_STATUS.some(x => x[0] === f.status) ? f.status : "coming up";
-    st.onchange = () => { f.status = st.value; writeCell(fl, f.row, f.col, st.value).then(() => { if (TEST) fl.display[f.row][f.col] = st.value; renderFilings(); }); };
-    row.append(left, st);
-    box.append(row);
+  [...groups.values()].sort((a, b) => a.order < b.order ? -1 : 1).forEach(g => {
+    box.append(el("i", "mt filing-group", g.label));
+    g.items.forEach(f => {
+      const b = el("button", "filing-item" + (g.label === "submit now" ? " late" : ""), f.name + (ents.length > 1 ? " (" + f.who + ")" : ""));
+      b.type = "button"; b.title = [f.deadline ? "due " + longDate(f.deadline) : "", f.notes].filter(Boolean).join("\n");
+      b.onclick = () => openFiling(f.row);
+      box.append(b);
+    });
   });
-  if (fl) { const b = el("button", "more", "all filings"); b.type = "button"; b.onclick = () => showView(fl.name); box.append(b); }
+}
+function openFiling(row) {
+  const fl = data.filings; if (!fl) return;
+  showView(fl.name);
+  const tr = $("#grid tbody").children[row]; if (!tr) return;
+  tr.scrollIntoView({ block: "center" }); tr.classList.add("flash"); setTimeout(() => tr.classList.remove("flash"), 2500);
 }
 
 
@@ -942,21 +933,33 @@ function renderAttention() {
     b.onclick = i.go; box.append(b);
   });
 }
+// tasks: a plain text box, one task per line. it saves to the tasks tab when you click away
 function renderTasks() {
-  const box = $("#tasksBox"), tasks = openTasks();
-  box.hidden = !data.tasks; if (!data.tasks) return;
-  const copy = el("button", "btn", "copy"); copy.type = "button";
-  copy.onclick = () => { (navigator.clipboard ? navigator.clipboard.writeText(["tasks"].concat(tasks.map(t => "- " + t.text)).join("\n")) : Promise.reject()).then(() => { copy.textContent = "copied"; setTimeout(() => (copy.textContent = "copy"), 1500); }, () => {}); };
-  const hd = el("div", "hd"); hd.append(el("b", null, "tasks"), copy);
-  box.replaceChildren(hd);
-  if (!tasks.length) box.append(el("p", "empty", "all done"));
-  const shown = dash.allTasks ? tasks : tasks.slice(0, 5);
-  shown.forEach(t => {
-    const row = el("div", "task"), tick = el("button", "tick"); tick.type = "button"; tick.setAttribute("aria-label", "done");
-    tick.onclick = () => { row.classList.add("done"); setStrike(data.tasks, t.i, t.j, true); setTimeout(renderTasks, 700); };
-    row.append(tick, el("span", null, t.text)); box.append(row);
-  });
-  if (tasks.length > 5) { const m = el("button", "more", dash.allTasks ? "show fewer" : "show " + (tasks.length - 5) + " more"); m.type = "button"; m.onclick = () => { dash.allTasks = !dash.allTasks; renderTasks(); }; box.append(m); }
+  const box = $("#tasksBox"), t = data.tasks;
+  box.hidden = !t; if (!t) return;
+  const ta = el("textarea", "tasks-text"); ta.value = openTasks().map(x => x.text).join("\n\n"); ta.spellcheck = true; ta.setAttribute("aria-label", "tasks");
+  const fit = () => { ta.style.height = "auto"; ta.style.height = (ta.scrollHeight + 2) + "px"; };
+  ta.oninput = fit;
+  ta.onblur = () => saveTasks(ta.value.split("\n").map(x => x.trim()).filter(Boolean));
+  box.replaceChildren(el("b", "hd", "tasks"), ta);
+  setTimeout(fit, 0);
+}
+async function saveTasks(mine) {
+  const t = data.tasks, personal = dash.mode === "personal", before = openTasks().map(x => x.text);
+  if (before.join("\n") === mine.join("\n")) return;
+  // keep the other mode's tasks as they are; rewrite this mode's
+  const others = [];
+  t.display.forEach((r, i) => { const v = String((r || [])[1] || "").trim(), tag = lc((r || [])[2]); if (i > 2 && v && ((tag === "personal") !== personal)) others.push([v, tag]); });
+  const rows = mine.map(v => [v, personal ? "personal" : ""]).concat(others);
+  const oldCount = t.display.filter((r, i) => i > 2 && String((r || [])[1] || "").trim()).length;
+  while (rows.length < oldCount) rows.push(["", ""]);
+  if (TEST) { rows.forEach((r, k) => { const i = 3 + k; t.display[i] = ["", r[0], r[1]]; t.raw[i] = ["", r[0], r[1]]; t.fmt[i] = []; }); return; }
+  status("saving");
+  try {
+    const range = quote(t.name) + "!B4:C" + (3 + rows.length);
+    await api(SHEETS + book.id + "/values/" + encodeURIComponent(range) + "?valueInputOption=RAW", { method: "PUT", body: JSON.stringify({ range, majorDimension: "ROWS", values: rows }) });
+    await refreshTab(t); status("saved");
+  } catch (e) { status(e.expired ? "signed out. sign in again to save." : e.message); }
 }
 
 /* ---------- statements, saved as pdf through the print dialog ---------- */
