@@ -225,9 +225,11 @@ input.inline { width: 110px; height: 24px; padding: 0 4px; border: 0; outline: 2
 .chart g.sub:hover circle { stroke: var(--grey); }
 .filing-group { margin-top: 10px; }
 .filing-group:first-of-type { margin-top: 0; }
-.filing-item { display: block; width: 100%; padding: 2px 0; border: 0; background: none; text-align: left; }
-.filing-item:hover { color: var(--grey); }
-.filing-item.late { color: var(--rtext); }
+.lead.filing { padding: 2px 0; white-space: normal; align-items: last baseline; }
+.lead.filing > span:first-child { overflow: visible; }
+.lead.filing > span:last-child { white-space: nowrap; }
+.lead.filing.late > span:first-child, .lead.filing.late > span:last-child { color: var(--rtext); }
+.lead.filing:hover > span { color: var(--grey); }
 #filingsBox > .more { margin-top: 12px; }
 .tasks-text { display: block; width: 100%; min-height: 120px; padding: 8px 0; border: 0; border-top: 1px solid var(--hair); background: none; color: var(--ink); font: inherit; line-height: 1.6; resize: none; overflow: hidden; }
 .tasks-text:focus { outline: 0; border-top-color: var(--ink); }
@@ -238,10 +240,18 @@ input.inline { width: 110px; height: 24px; padding: 0 4px; border: 0; outline: 2
 .grid.tx td, .grid.tx th { padding-right: 18px; }
 .grid.tx td select { field-sizing: content; }
 .grid.tx td:last-child, .grid.tx th:last-child { padding-right: 0; }
-.grid.tx tr.sep td { height: auto; border-bottom: 0; background: none !important; }
-.grid.tx tr.sep.year td { padding-top: 22px; font-weight: 700; }
-.grid.tx tr.sep.month td { padding-top: 12px; padding-bottom: 2px; font-style: italic; }
-.grid.tx tr.sep:first-child td { padding-top: 10px; }
+/* year and month rows stay pinned under the header until the next one takes their place */
+.grid.tx tr.sep td { position: sticky; z-index: 1; height: auto; border-bottom: 0; background: var(--card) !important; }
+.grid.tx tr.sep.year td { top: var(--th-h, 41px); padding-top: 12px; padding-bottom: 4px; }
+.grid.tx tr.sep.month td { top: calc(var(--th-h, 41px) + var(--yr-h, 38px)); padding-top: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--hair); }
+.grid.tx tr.sep .part { margin-left: 28px; }
+.grid.tx tr.sep.month > td:first-child > i:first-child { display: inline-block; min-width: 3em; }
+.grid.tx tr.sep.year > td:first-child > b { display: inline-block; min-width: 3em; }
+/* folded columns: click a heading to narrow it, click again to open it */
+.grid.tx th.fold { cursor: pointer; }
+.grid.tx th.fold:hover { color: var(--grey); }
+.grid.tx th.x, .grid.tx td.x { max-width: 64px; overflow: hidden; color: var(--grey); }
+.grid.tx th.x { color: var(--grey); }
 .grid select.cat { max-width: 100%; }
 .grid td select.cat.tag { padding: 0 6px; background: hsl(var(--h) 70% 92%); color: #26241f; }
 html.dark .grid td select.cat.tag { background: hsl(var(--h) 22% 22%); color: var(--ink); }
@@ -261,6 +271,11 @@ table.plan tr.head:first-child td { padding-top: 4px; }
 table.plan tr.note td { font-style: italic; }
 table.plan tr.total td { padding-top: 6px; }
 table.plan tr.total td.num { border-top: 1px solid var(--ink); }
+table.plan tr.line td, table.plan tr.note td { background-image: radial-gradient(circle, var(--dots) 0.7px, transparent 1px); background-size: 4px 4px; background-repeat: repeat-x; background-position: 0 calc(50% + 3px); }
+table.plan tr.line td > span, table.plan tr.note td > span { padding-right: 8px; background: var(--card); }
+table.plan tr.line td.num > span, table.plan tr.note td.num > span { padding: 0 0 0 8px; }
+table.plan tr.note td.num > span:empty { padding: 0; }
+table.plan tr.line td.num, table.plan tr.note td.num { padding-left: 12px; background-clip: content-box; background-origin: content-box; }
 table.plan td.editable { cursor: text; }
 table.plan td.editable:hover { color: var(--grey); }
 .fc .filters label.box { margin-left: auto; }

@@ -32,6 +32,8 @@ const PERIODS = [["all", "all time"], ["3m", "last 3 months"], ["1m", "last mont
 const FX_FALLBACK = { GBPEUR: 1.17, USDEUR: 0.92, EURGBP: 0.855, USDGBP: 0.78 };
 const TX_CLEAR = { text: "", entity: "", entities: null, category: "", account: "", group: "", only: null, from: "", to: "" };
 const txFilter = Object.assign({}, TX_CLEAR);
+const FOLD_KEY = "ca-finance-folded";
+const txFolded = new Set((() => { try { return JSON.parse(localStorage.getItem(FOLD_KEY)) || null; } catch { return null; } })() || ["account", "entity", "reference", "amount"]);
 
 /* ---------- google sign-in ---------- */
 function loadScript(src) {
@@ -720,27 +722,34 @@ function upcomingFilings() {
   });
   return gs;
 }
-// filings: grouped under an italic heading (when to submit), each filing below it; red when it needs submitting now.
-// statuses are changed in the sheet, not here. clicking a filing opens its row on the filings tab
+// filings: only what still needs doing for this period or earlier. business and personal under italic headings,
+// the current mode's first. statuses are changed in the sheet, not here. clicking a filing opens its row on the filings tab
 function submitText(f, today = iso(new Date())) { const d = f.target || f.deadline; return !d ? "" : d < today ? "submit now" : "submit " + longDate(d); }
+function filingYear(f) { return +((/(\d{4})/.exec(f.name) || [])[1]) || 0; }
+function filingLive(f, today = iso(new Date())) { return f.status !== "done" && f.status !== "filed, to confirm" && filingYear(f) <= +today.slice(0, 4); }
 function renderFilings() {
-  const box = $("#filingsBox"), fl = data.filings, today = iso(new Date()), ents = scopeEntities(), pick = dash.filingsPick;
+  const box = $("#filingsBox"), today = iso(new Date()), pick = dash.filingsPick, y = today.slice(0, 4);
   box.replaceChildren(el("b", "hd", "filings"));
   if (pick) { const chip = el("button", "box chip", pick.label); chip.type = "button"; chip.onclick = () => { dash.filingsPick = null; renderFilings(); }; box.append(chip); }
-  const items = filingDates().filter(f => ents.includes(f.who) && f.status !== "done" && (!pick || pick.names.includes(f.name)));
-  const groupOf = f => f.status === "filed, to confirm" ? ["filed, to confirm", "3"] : (f.target || f.deadline) ? [submitText(f, today), (f.target || f.deadline) < today ? "0" : "1" + (f.target || f.deadline)] : f.status === "to do" ? ["to do", "2a"] : ["coming up", "2b"];
-  const groups = new Map();
-  items.forEach(f => { const [label, order] = groupOf(f); const g = groups.get(label) || { label, order, items: [] }; g.items.push(f); groups.set(label, g); });
-  if (!items.length) box.append(el("p", "empty", "nothing to file"));
-  [...groups.values()].sort((a, b) => a.order < b.order ? -1 : 1).forEach(g => {
-    box.append(el("i", "mt filing-group", g.label));
-    g.items.forEach(f => {
-      const b = el("button", "filing-item" + (g.label === "submit now" ? " late" : ""), f.name + (ents.length > 1 ? " (" + f.who + ")" : ""));
-      b.type = "button"; b.title = [f.deadline ? "due " + longDate(f.deadline) : "", f.notes].filter(Boolean).join("\n");
-      b.onclick = () => openFiling(f.row);
-      box.append(b);
+  const items = filingDates().filter(f => pick ? pick.names.includes(f.name) && f.status !== "done" : filingLive(f, today));
+  const when = f => f.target || f.deadline || "";
+  const sortKey = f => when(f) ? (when(f) < today ? "0" : "1" + when(f)) : "2";
+  const sides = [["business", f => f.who !== "personal"], ["personal", f => f.who === "personal"]];
+  if (dash.mode === "personal") sides.reverse();
+  let any = false;
+  sides.forEach(([label, fn]) => {
+    const list = items.filter(fn).sort((a, b) => sortKey(a) < sortKey(b) ? -1 : 1);
+    if (!list.length) return;
+    any = true; box.append(el("i", "mt filing-group", label));
+    list.forEach(f => {
+      const d = when(f), late = d && d < today;
+      const value = !d ? f.status : late ? "now" : (() => { const x = new Date(d + "T00:00:00"); return x.getDate() + " " + MONTHS[x.getMonth()] + (d.slice(0, 4) === y ? "" : " " + d.slice(0, 4)); })();
+      const row = lead(f.name + (f.who !== "personal" ? " (" + f.who + ")" : ""), value, { cls: "filing" + (late ? " late" : ""), onclick: () => openFiling(f.row) });
+      row.title = [d ? submitText(f, today) : "", f.deadline ? "due " + longDate(f.deadline) : "", f.notes].filter(Boolean).join("\n");
+      box.append(row);
     });
   });
+  if (!any) box.append(el("p", "empty", "nothing to file"));
 }
 function openFiling(row) {
   const fl = data.filings; if (!fl) return;
@@ -906,8 +915,10 @@ function renderPlanTable(conf, inp, p, t) {
   lines.forEach(([kind, label, plan, act, good, key, ikind]) => {
     const tr = el("tr", kind);
     if (kind === "head") { const td = el("td", null, label); td.colSpan = 4; tr.append(td); return body.append(tr); }
-    tr.append(el("td", null, label));
-    const pc = el("td", "num", kind === "note" ? fmtIn(plan, ikind) : money(plan));
+    // each value sits in a span over a dotted line, so the eye can run from the label across to its figures
+    const sp = (cls, txt) => { const td = el("td", cls); td.append(el("span", null, txt)); return td; };
+    tr.append(sp(null, label));
+    const pc = sp("num", kind === "note" ? fmtIn(plan, ikind) : money(plan));
     const cell = key && inp[key];
     if (cell) {
       pc.classList.add("editable");
@@ -919,10 +930,10 @@ function renderPlanTable(conf, inp, p, t) {
       };
     }
     tr.append(pc);
-    if (act == null) { tr.append(el("td"), el("td")); return body.append(tr); }
-    tr.append(el("td", "num", money(act)));
+    if (act == null) { tr.append(sp("num", ""), sp("num", "")); return body.append(tr); }
+    tr.append(sp("num", money(act)));
     const diff = good === "down" ? plan - act : act - plan;
-    tr.append(el("td", "num " + (Math.abs(diff) < 0.5 ? "" : diff < 0 ? "r" : "g"), Math.abs(diff) < 0.5 ? "–" : (diff < 0 ? "−" : "+") + money(Math.abs(diff)).replace(/^−/, "")));
+    tr.append(sp("num " + (Math.abs(diff) < 0.5 ? "" : diff < 0 ? "r" : "g"), Math.abs(diff) < 0.5 ? "–" : (diff < 0 ? "−" : "+") + money(Math.abs(diff)).replace(/^−/, "")));
     body.append(tr);
   });
   tb.append(body);
@@ -1251,34 +1262,70 @@ function renderTransactions(tab, c0, cols) {
   head.append(count);
   let t; search.oninput = () => { clearTimeout(t); t = setTimeout(() => { txFilter.text = search.value; draw(); }, 150); };
 
-  const hdr = tab.display[data.head] || [];
-  // what each column is, in the order shown. stream, group and the book-currency amount stay in the sheet but not here
-  const colsShown = [["date", c.date], ["account", c.account, "pick"], ["entity", c.entity, "pick"], ["merchant", c.merchant], ["reference", c.reference], ["amount", c.amount, "num"], ["currency", c.currency], ["usd", -1, "num"], ["category", c.category, "cat"], ["receipt", c.receipt, "receipt"]];
+  // what each column is, in the order shown. stream, group and the book-currency amount stay in the sheet but not here.
+  // the amount carries its own currency symbol; usd is that amount converted; balance runs across what's in scope
+  const colsShown = [["date", c.date], ["account", c.account, "pick"], ["entity", c.entity, "pick"], ["merchant", c.merchant], ["reference", c.reference], ["amount", c.amount, "amt"], ["usd", -1, "num"], ["balance", -2, "num"], ["category", c.category, "cat"], ["receipt", c.receipt, "receipt"]];
+  const fmt2 = v => (v < 0 ? "-" : "") + Math.abs(v).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   function draw() {
+    const keepTop = $("#sheetScroll").scrollTop;
     grid.innerHTML = ""; $("#more").innerHTML = ""; if (more) more.disconnect();
-    const thead = el("thead"), tr = el("tr"); colsShown.forEach(([name, , kind]) => tr.append(el("th", kind === "num" ? "num" : null, name))); thead.append(tr); grid.append(thead);
+    const thead = el("thead"), tr = el("tr");
+    colsShown.forEach(([name, , kind]) => {
+      const th = el("th", (kind === "num" || kind === "amt" ? "num " : "") + "fold" + (txFolded.has(name) ? " x" : ""), txFolded.has(name) && FOLD_HEAD[name] ? FOLD_HEAD[name] : name); th.title = name;
+      th.onclick = () => { txFolded.has(name) ? txFolded.delete(name) : txFolded.add(name); try { localStorage.setItem(FOLD_KEY, JSON.stringify([...txFolded])); } catch {} draw(); $("#sheetScroll").scrollTop = keepTop; };
+      tr.append(th);
+    });
+    thead.append(tr); grid.append(thead);
     const list = txMatches(txFilter, tab);
     count.textContent = list.length.toLocaleString("en-GB") + (list.length === 1 ? " transaction" : " transactions");
+    const bal = runningBalance(txFilter);
     const body = el("tbody"); grid.append(body);
     let shown = 0, lastY = "", lastM = "";
-    const span = colsShown.length;
+    const iUsd = colsShown.findIndex(x => x[0] === "usd");
+    // a year or month row: its name, income and costs of the rows shown, the balance it started on; net under usd, closing balance under balance
+    const sumOf = key => { const rs = list.filter(r => r.date.startsWith(key)), inc = total(rs.filter(isIncome)), cost = total(rs.filter(isCost));
+      const asc = rs.slice().sort((p, q) => p.date < q.date || (p.date === q.date && p.i < q.i) ? -1 : 1);
+      const first = asc[0], last = asc[asc.length - 1];
+      return { inc, cost, net: total(rs), start: first && bal.has(first.i) ? bal.get(first.i) - first.v : null, end: last && bal.has(last.i) ? bal.get(last.i) : null }; };
+    const sepRow = (cls, label, key) => {
+      const t = sumOf(key), h = el("tr", "sep " + cls), lab = el("td"); lab.colSpan = iUsd;
+      const name = cls === "year" ? el("b", null, label) : el("i", null, label);
+      const part = (l, v, c) => { const sp = el("span", "part"); sp.append(el("i", null, l), " ", el("span", c, v)); return sp; };
+      lab.append(name, part("income", money(t.inc), t.inc ? "g" : null), part("costs", money(t.cost), t.cost ? "r" : null));
+      if (t.start != null) lab.append(part("started on", money(t.start)));
+      const net = el("td", "num " + (t.net < 0 ? "neg" : "pos"), fmt2(t.net)), end = el("td", "num", t.end == null ? "" : fmt2(t.end)), rest = el("td"); rest.colSpan = colsShown.length - iUsd - 2;
+      h.append(lab, net, end, rest); return h;
+    };
     const page = () => {
       const frag = document.createDocumentFragment();
       list.slice(shown, shown + 300).forEach(r => {
         const y = r.date.slice(0, 4), m = r.date.slice(0, 7);
-        if (y !== lastY) { const h = el("tr", "sep year"), td = el("td", null, y); td.colSpan = span; h.append(td); frag.append(h); lastY = y; }
-        if (m !== lastM) { const h = el("tr", "sep month"), td = el("td", null, MONTHS[+m.slice(5) - 1]); td.colSpan = span; h.append(td); frag.append(h); lastM = m; }
-        frag.append(txRow(tab, r, colsShown, cats, entities, accounts));
+        if (y !== lastY) { frag.append(sepRow("year", y, y)); lastY = y; }
+        if (m !== lastM) { frag.append(sepRow("month", MONTHS[+m.slice(5) - 1], m)); lastM = m; }
+        frag.append(txRow(tab, r, colsShown, cats, entities, accounts, bal));
       });
       body.append(frag); shown += 300;
       if (shown >= list.length && more) more.disconnect();
     };
     page();
+    const yr = body.querySelector("tr.sep.year");
+    grid.style.setProperty("--th-h", thead.offsetHeight + "px"); grid.style.setProperty("--yr-h", (yr ? yr.offsetHeight : 0) + "px");
     const sentinel = el("div"); sentinel.style.height = "1px"; $("#more").append(sentinel);
     more = new IntersectionObserver(es => { if (es[0].isIntersecting && shown < list.length) page(); }, { root: $("#sheetScroll"), rootMargin: "400px" });
     more.observe(sentinel);
   }
   draw();
+}
+// the balance after each transaction, across the accounts and entities in view (not narrowed by search or category),
+// each currency kept apart and converted at that month's rate, the same way the dashboard does it
+function runningBalance(f) {
+  const out = new Map(), byCur = {};
+  const rs = data.rows.filter(r => !r.synthetic && (!f.entities || f.entities.includes(r.entity)) && (!f.entity || r.entity === f.entity) && (!f.account || r.account === f.account))
+    .sort((p, q) => p.date < q.date ? -1 : p.date > q.date ? 1 : p.i - q.i);
+  const now = iso(new Date()).slice(0, 7);
+  rs.forEach(r => { byCur[r.cur] = (byCur[r.cur] || 0) + r.amount; const m = r.date.slice(0, 7) > now ? now : r.date.slice(0, 7);
+    out.set(r.i, Object.entries(byCur).reduce((a, [c, v]) => a + v * rate(m, c || "EUR", dash.cur), 0)); });
+  return out;
 }
 
 // one transaction row: dropdowns for account, entity and category, links for receipts, a faint flag where a receipt is expected but missing
@@ -1290,10 +1337,18 @@ function receiptLink(raw, shown) {
   return { url, label: /mail\.google/.test(url) ? "gmail" : /drive\.google|docs\.google/.test(url) ? "drive" : "link" };
 }
 const CAT_HUE = { "client work": 135, program: 150, affiliate: 165, "other income": 120, income: 135, salary: 135, dividends: 160, team: 210, software: 230, "ads & marketing": 260, "professional fees": 280, training: 300, "travel & meals": 25, travel: 25, "eating out": 35, groceries: 90, equipment: 190, rent: 0, bills: 15, transport: 45, shopping: 320, entertainment: 340, lifestyle: 300, "payment fees": 50, "bank fees": 50, "transfer fees": 50, "director pay": 270, "director's loan": 270, dividends_: 0, intercompany: 200, "own transfer": 200, transfers: 200, "opening balance": 200, "corporation tax": 10, vat: 10, paye: 10, check: 55, "business costs paid personally": 285, "other costs": 40, other: 40 };
-function txRow(tab, r, colsShown, cats, entities, accounts) {
+const FOLD_SHORT = { account: r => r.account.split(" ")[0], entity: r => r.entity === "personal" ? "me" : r.entity.split(" ")[0], reference: () => "", amount: r => SYMBOL[r.cur] || r.cur };
+const FOLD_HEAD = { account: "acct", entity: "ent", reference: "ref", amount: "amt" };
+function txRow(tab, r, colsShown, cats, entities, accounts, bal) {
   const row = el("tr"), d = tab.display[r.i] || [], raw = tab.raw[r.i] || [];
+  const fmt2 = v => (v < 0 ? "-" : "") + Math.abs(v).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   colsShown.forEach(([name, j, kind]) => {
-    const td = el("td");
+    let td = el("td");
+    // a folded column keeps a short form: the bank's first word, ie or uk, the currency symbol, nothing for the reference
+    if (txFolded.has(name) && FOLD_SHORT[name]) {
+      td.className = "x"; td.textContent = FOLD_SHORT[name](r, d[j]); td.title = name === "amount" ? (r.amount < 0 ? "-" : "") + (SYMBOL[r.cur] || r.cur + " ") + Math.abs(r.amount).toLocaleString("en-GB", { minimumFractionDigits: 2 }) : d[j] || "";
+      return row.append(td);
+    }
     if (kind === "pick" || kind === "cat") {
       const opts = kind === "cat" ? cats : name === "entity" ? entities : accounts, sl = el("select", kind === "cat" ? "cat tag" : "cat");
       opts.forEach(v => sl.append(new Option(kind === "cat" ? catName(v) : v, v))); sl.value = kind === "cat" ? r.category : name === "entity" ? r.entity : r.account;
@@ -1301,13 +1356,20 @@ function txRow(tab, r, colsShown, cats, entities, accounts) {
       sl.onchange = () => { writeCell(tab, r.i, j, sl.value).then(() => { buildModel(); if (kind === "cat") sl.style.setProperty("--h", CAT_HUE[sl.value] != null ? CAT_HUE[sl.value] : 40); }); };
       td.append(sl);
     } else if (name === "usd") {
-      td.className = "num " + (r.v < 0 ? "neg" : "pos"); td.textContent = (r.v < 0 ? "-" : "") + Math.abs(r.v).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      td.className = "num " + (r.v < 0 ? "neg" : "pos"); td.textContent = fmt2(r.v);
+    } else if (name === "balance") {
+      td.className = "num"; td.textContent = bal && bal.has(r.i) ? fmt2(bal.get(r.i)) : "";
+    } else if (kind === "amt") {
+      const sym = SYMBOL[r.cur] || (r.cur ? r.cur + " " : "");
+      td.className = "num edit " + (r.amount < 0 ? "neg" : "pos"); td.textContent = (r.amount < 0 ? "-" : "") + sym + Math.abs(r.amount).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      td.title = td.textContent; td.onclick = () => edit(td, tab, r.i, j);
     } else if (kind === "receipt") {
       const link = receiptLink(raw[j], d[j]);
       td.className = "receipt";
       if (link) { const a = el("a", null, link.label); a.href = link.url; a.target = "_blank"; a.rel = "noopener"; td.append(a); }
       else { td.textContent = d[j] || ""; td.classList.add("edit"); if (!d[j] && receiptExpected(r)) td.classList.add("need"); td.onclick = () => edit(td, tab, r.i, j); }
-    } else { const x = cell(tab, r.i, j, { right: kind === "num", colour: true, kind: "data" }); if (name === "merchant" || name === "reference") { x.classList.add("clip"); x.title = x.textContent; } return row.append(x); }
+    } else { td = cell(tab, r.i, j, { right: kind === "num", colour: true, kind: "data" }); if (name === "merchant" || name === "reference" || name === "account" || name === "entity") { td.classList.add("clip"); td.title = td.textContent; } }
+    if (txFolded.has(name)) td.classList.add("x");
     row.append(td);
   });
   return row;
