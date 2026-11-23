@@ -466,7 +466,7 @@ function streamMargins(rg) {
 }
 function renderStreams(rg) {
   const list = $("#streamList"), detail = $("#streamDetail"), streams = streamMargins(rg);
-  list.replaceChildren(el("i", "mt", dash.scope === "personal" ? "by source" : "by stream"));
+  list.replaceChildren(el("i", "mt", dash.scope === "personal" ? "source" : "stream"));
   if (!streams.length) { list.append(el("p", "empty", "no income in this period")); detail.replaceChildren(); return; }
   if (!streams.find(s => s.label === dash.stream)) dash.stream = streams[0].label;
   streams.forEach(s => {
@@ -477,7 +477,7 @@ function renderStreams(rg) {
 
   const s = streams.find(x => x.label === dash.stream);
   const box = el("div", "chart"), key = el("div");
-  detail.replaceChildren(el("i", "mt", s.label + ", where the revenue goes"), box, key);
+  detail.replaceChildren(el("i", "mt", s.label), box, key);
   const SHADES = [RED, "#ff8566", "#ffad99", "#ffd0c4", "#ffe6df"];
   const parts = [{ label: "margin", v: Math.max(0, s.margin), c: GREEN }].concat(s.steps.map((st, k) => ({ label: st.label, v: -st.v, c: SHADES[k] || SHADES[4] })));
   const whole = parts.reduce((a, p) => a + Math.max(0, p.v), 0) || 1;
@@ -486,7 +486,8 @@ function renderStreams(rg) {
     parts.forEach(p => {
       const w = Math.max(0, p.v) / whole * W; if (w <= 0) return;
       out += '<rect x="' + x + '" y="0" width="' + w + '" height="32" fill="' + p.c + '" stroke="#fff" stroke-width="1" data-tip="' + esc(p.label + "|" + money(p.v) + "|" + pct(p.v / whole)) + '"/>';
-      if (w > 44) out += '<text x="' + (x + 8) + '" y="21" ' + F + ">" + pct(p.v / whole) + "</text>";
+      const t = pct(p.v / whole), fs = Math.max(7, Math.min(14, (w - 4) / (t.length * 0.56)));
+      out += '<text x="' + (w > 44 ? x + 8 : x + w / 2) + '" y="' + (16 + fs * 0.35) + '" font-size="' + fs.toFixed(1) + '" font-family="PT Sans, Arial, sans-serif" fill="#26241f" text-anchor="' + (w > 44 ? "start" : "middle") + '" pointer-events="none">' + t + "</text>";
       x += w;
     });
     return out;
@@ -502,7 +503,7 @@ function renderStreams(rg) {
 function renderCosts(rg) {
   const list = $("#costList"), detail = $("#costDetail");
   const rows = sel(rg, isCost), cats = groupBy(rows, "category").filter(c => Math.abs(c.v) > 0.5);
-  list.replaceChildren(el("i", "mt", "by category"));
+  list.replaceChildren(el("i", "mt", "category"));
   if (!cats.length) { list.append(el("p", "empty", "no costs in this period")); detail.replaceChildren(); return; }
   if (dash.cat && !cats.find(c => c.label === dash.cat)) dash.cat = null;
   list.append(lead("all costs", money(-total(rows)), { sel: !dash.cat, onclick: () => { dash.cat = null; renderCosts(rg); } }));
@@ -517,22 +518,28 @@ function renderCosts(rg) {
   if (others.length) shown.push({ label: others.length + " others", v: others.reduce((a, p) => a + p.v, 0), others: true });
   const sum = -shown.reduce((a, p) => a + p.v, 0);
   const pie = el("div", "pie"), key = el("div");
-  detail.replaceChildren(el("i", "mt", dash.cat ? dash.cat + ", by supplier" : "all costs, by category"), pie);
+  detail.replaceChildren(el("i", "mt", dash.cat || "all costs"), pie);
   let a0 = -Math.PI / 2, p = "";
   shown.forEach((it, k) => {
     const v = -it.v, frac = sum ? v / sum : 0, a1 = a0 + frac * 2 * Math.PI, R = 96, r = 56, lg = a1 - a0 > Math.PI ? 1 : 0;
     const pt = (rr, a) => (100 + rr * Math.cos(a)).toFixed(2) + "," + (100 + rr * Math.sin(a)).toFixed(2);
-    p += frac > 0.9999 ? '<circle cx="100" cy="100" r="76" fill="none" stroke="' + PASTEL[k] + '" stroke-width="40"/>'
-      : '<path d="M' + pt(R, a0) + " A" + R + "," + R + " 0 " + lg + " 1 " + pt(R, a1) + " L" + pt(r, a1) + " A" + r + "," + r + " 0 " + lg + " 0 " + pt(r, a0) + ' Z" fill="' + PASTEL[k] + '" stroke="#fff" stroke-width="2"/>';
-    const am = (a0 + a1) / 2; if (frac >= 0.06) p += '<text x="' + (100 + 76 * Math.cos(am)).toFixed(1) + '" y="' + (100 + 76 * Math.sin(am) + 5).toFixed(1) + '" font-size="13" text-anchor="middle" font-family="PT Sans, Arial, sans-serif" fill="#26241f">' + Math.round(frac * 100) + "%</text>";
+    const label = Math.round(frac * 100) < 1 ? "<1%" : Math.round(frac * 100) + "%";
+    p += '<g class="slice" data-k="' + k + '" data-tip="' + esc(it.label + "|" + money(v) + "|" + label) + '">' + (frac > 0.9999 ? '<circle cx="100" cy="100" r="76" fill="none" stroke="' + PASTEL[k] + '" stroke-width="40"/>'
+      : '<path d="M' + pt(R, a0) + " A" + R + "," + R + " 0 " + lg + " 1 " + pt(R, a1) + " L" + pt(r, a1) + " A" + r + "," + r + " 0 " + lg + " 0 " + pt(r, a0) + ' Z" fill="' + PASTEL[k] + '" stroke="#fff" stroke-width="2"/>');
+    const am = (a0 + a1) / 2, fs = Math.max(6, Math.min(13, frac * 2 * Math.PI * 76 / (label.length * 0.6), 40 / (label.length * 0.6)));
+    p += '<text x="' + (100 + 76 * Math.cos(am)).toFixed(1) + '" y="' + (100 + 76 * Math.sin(am) + fs * 0.35).toFixed(1) + '" font-size="' + fs.toFixed(1) + '" text-anchor="middle" font-family="PT Sans, Arial, sans-serif" fill="#26241f" pointer-events="none">' + label + "</text></g>";
     const go = it.others ? null : dash.cat ? () => goTransactions({ category: dash.cat, text: it.label }) : () => { dash.cat = it.label; renderCosts(rg); };
-    key.append(lead(it.label, money(v), { swatch: PASTEL[k], onclick: go }));
+    const row = lead(it.label, money(v), { swatch: PASTEL[k], onclick: go }); row.dataset.k = k; key.append(row);
     a0 = a1;
   });
   const when = { year: "this year", quarter: "this quarter", month: "this month" }[rg.kind];
   p += '<text x="100" y="98" ' + F + ' text-anchor="middle">' + esc(money(sum)) + '</text><text x="100" y="117" font-size="14" font-style="italic" text-anchor="middle" font-family="PT Sans, Arial, sans-serif" fill="#26241f">' + when + "</text>";
   const svg = '<svg viewBox="0 0 200 200" width="190" height="190">' + p + "</svg>";
   pie.innerHTML = svg; pie.append(key);
+  // like google sheets: the slice under the mouse, or its key row, lifts with a shadow
+  const lift = k => { const g = pie.querySelector('.slice[data-k="' + k + '"]'); pie.querySelectorAll(".slice").forEach(x => x.classList.toggle("on", x === g)); if (g) { const all = pie.querySelectorAll(".slice"); all[all.length - 1].after(g); } };
+  pie.querySelectorAll(".slice").forEach(g => { g.addEventListener("mouseenter", () => lift(g.dataset.k)); g.addEventListener("mouseleave", () => lift(-1)); });
+  key.querySelectorAll(".lead[data-k]").forEach(r => { r.addEventListener("mouseenter", () => lift(r.dataset.k)); r.addEventListener("mouseleave", () => lift(-1)); });
   if (rg.months > 1) key.append(lead("per month", money(sum / monthsElapsed(rg)), { italic: true, cls: "total" }));
 }
 
@@ -541,14 +548,14 @@ function renderCash(rg) {
   const accounts = [...new Set(data.rows.filter(r => scopeEntities().includes(r.entity)).map(r => r.account))];
   const items = accounts.map(a => ({ label: a, v: balance(to, r => r.account === a) })).filter(i => Math.abs(i.v) >= 0.5).sort((a, b) => b.v - a.v);
   if (dash.acct && !items.find(i => i.label === dash.acct)) dash.acct = null;
-  list.replaceChildren(el("i", "mt", "by account, at " + longDate(to > iso(new Date()) ? iso(new Date()) : to)));
+  list.replaceChildren(el("i", "mt", "account"));
   list.append(lead("all accounts", money(balance(to)), { sel: !dash.acct, onclick: () => { dash.acct = null; renderCash(rg); } }));
   items.forEach(i => list.append(lead(i.label, money(i.v), { sel: i.label === dash.acct, onclick: () => { dash.acct = i.label; renderCash(rg); } })));
 
   const start = new Date(dash.fy + "T00:00:00"), today = iso(new Date()), pts = [];
   for (let k = 0; k < 12; k++) { const m = monthEnd(addMonths(start, k)), d = iso(m); pts.push({ label: MONTHS[m.getMonth()], v: d.slice(0, 7) <= today.slice(0, 7) ? balance(d < today ? d : today, dash.acct ? r => r.account === dash.acct : null) : null }); }
   const box = el("div", "chart");
-  detail.replaceChildren(el("i", "mt", (dash.acct || "all accounts") + ", balance by month"), box);
+  detail.replaceChildren(el("i", "mt", dash.acct || "all accounts"), box);
   const known = pts.filter(p => p.v != null).map(p => p.v);
   const hi = niceMax(Math.max(1, ...known)), lo = Math.min(0, ...known) < 0 ? -niceMax(-Math.min(0, ...known)) : 0;
   svgBox(box, 200, W => {

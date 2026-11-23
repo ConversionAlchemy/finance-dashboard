@@ -31,15 +31,16 @@ button { cursor: pointer; }
 .gate-title { font-weight: 700; }
 .gate-error { max-width: 360px; text-align: center; }
 .primary-button { height: 40px; padding: 0 20px; border: 1px solid var(--ink); background: var(--ink); color: #fff; }
-.primary-button:hover { text-decoration: underline; }
+.primary-button:hover { background: #4a473f; }
 
 /* top bar: brand menu left, tabs right */
 .top { position: sticky; top: 0; z-index: 20; display: flex; justify-content: space-between; align-items: stretch; gap: 16px; height: var(--top-h); padding: 0 24px; background: #fff; border-bottom: 1px solid var(--hair); }
 .brand { position: relative; display: flex; align-items: center; gap: 14px; }
 .brand-button { padding: 0; border: 0; background: none; white-space: nowrap; }
+.brand-button:hover, .brand-button:hover * { color: var(--grey); }
 .menu { position: absolute; top: calc(var(--top-h) - 6px); left: 0; z-index: 30; display: grid; min-width: 200px; background: #fff; border: 1px solid var(--hair); }
 .menu button, .menu a { padding: 8px 14px; border: 0; background: #fff; color: var(--ink); text-align: left; text-decoration: none; }
-.menu button:hover, .menu a:hover { background: var(--bg); }
+.menu button:hover, .menu a:hover { color: var(--grey); }
 .status { font-style: italic; white-space: nowrap; }
 .tabs { display: flex; align-items: flex-end; gap: 4px; overflow-x: auto; }
 .tabs button { padding: 7px 16px; background: var(--bg); border: 1px solid var(--hair); border-bottom: 0; white-space: nowrap; }
@@ -52,13 +53,13 @@ main { padding: 12px 24px 40px; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
 .box { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; background: #fff; border: 1px solid var(--hair); white-space: nowrap; }
 .box select { height: 30px; border: 0; background: none; font-weight: 700; cursor: pointer; }
-button.box:hover { text-decoration: underline; }
+button.box:hover { color: var(--grey); }
 #monthChip::after { content: "  \00d7"; }
 .seg { display: inline-flex; height: 32px; background: #fff; border: 1px solid var(--hair); }
 .seg button { padding: 0 12px; border: 0; border-left: 1px solid var(--hair); background: #fff; }
 .seg button:first-child { border-left: 0; }
 .seg button[aria-pressed="true"] { background: var(--soft); font-weight: 700; }
-.seg button:hover { text-decoration: underline; }
+.seg button:hover { color: var(--grey); }
 .range { margin-left: auto; font-style: italic; }
 
 .sec { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 24px; padding: 18px 20px; margin-bottom: 12px; background: #fff; }
@@ -72,7 +73,10 @@ table.sum { border-collapse: collapse; width: 100%; }
 .lead > span:first-child { overflow: hidden; text-overflow: ellipsis; }
 .lead .dots { flex: 1; min-width: 12px; border-bottom: 1px dotted #b8b3a8; transform: translateY(-4px); }
 .pick .lead.link { cursor: pointer; }
-.pick .lead.link:hover > span:first-child, .pick .lead.sel > span:first-child { text-decoration: underline; text-underline-offset: 4px; }
+.lead.link:hover, .lead.link:hover * { color: var(--grey); }
+.pick .lead.sel > span:first-child { text-decoration: underline; }
+.slice path, .slice circle { transition: none; }
+.slice.on path, .slice.on circle { filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.35)); }
 .total { margin-top: 6px; }
 .empty { font-style: italic; }
 .sw { display: inline-block; width: 12px; height: 12px; margin-right: 8px; vertical-align: -1px; }
@@ -87,15 +91,17 @@ table.sum { border-collapse: collapse; width: 100%; }
 .side { align-self: start; position: sticky; top: calc(var(--top-h) + 12px); padding: 18px 20px; background: #fff; margin-top: 44px; }
 .side .hd { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
 .btn { padding: 2px 10px; border: 1px solid var(--hair); background: #fff; }
-.btn:hover { text-decoration: underline; }
+.btn:hover { color: var(--grey); }
 .side .item { display: block; width: 100%; padding: 8px 0; border: 0; border-bottom: 1px solid var(--hair); background: none; text-align: left; }
-.side .item:hover { text-decoration: underline; }
+.side .item:hover, .side .item:hover * { color: var(--grey); }
 .side .tasks-label { margin-top: 16px; }
 .task { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--hair); }
+.task .tick:hover { border-color: var(--grey); }
 .task .tick { flex: none; width: 13px; height: 13px; margin-top: 4px; padding: 0; border: 1px solid var(--ink); background: #fff; }
 .task.done { text-decoration: line-through; color: var(--grey); }
 .task.done .tick { background: var(--ink); }
-.more { margin-top: 8px; padding: 0; border: 0; background: none; text-decoration: underline; text-underline-offset: 3px; }
+.more { margin-top: 8px; padding: 0; border: 0; background: none; text-decoration: underline; }
+.more:hover { color: var(--grey); }
 
 /* sheet tabs */
 .sheet-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
@@ -103,6 +109,7 @@ table.sum { border-collapse: collapse; width: 100%; }
 .sheet-head input, .sheet-head select { height: 32px; padding: 0 8px; border: 1px solid var(--hair); background: #fff; }
 .sheet-head input { width: 240px; }
 .sheet-head .chip { height: 32px; padding: 0 12px; border: 1px solid var(--hair); background: var(--soft); }
+.sheet-head .chip:hover { color: var(--grey); }
 .sheet-head .chip::after { content: "  \00d7"; }
 .count { font-style: italic; }
 .sheet-scroll { overflow: auto; max-height: calc(100dvh - var(--top-h) - 80px); background: #fff; }
@@ -119,7 +126,7 @@ table.sum { border-collapse: collapse; width: 100%; }
 .grid td.r { text-align: right; }
 .grid td input { width: 100%; min-width: 80px; height: 24px; padding: 0 4px; border: 0; outline: 2px solid var(--ink); background: #fff; }
 .grid td select.cat { height: 24px; padding: 0; border: 0; background: transparent; cursor: pointer; }
-.grid td select.cat:hover { text-decoration: underline; }
+.grid td select.cat:hover { color: var(--grey); }
 .grid a { color: var(--ink); }
 
 .tip { position: fixed; z-index: 40; padding: 6px 9px; background: var(--ink); color: #fff; line-height: 1.35; white-space: nowrap; pointer-events: none; }
