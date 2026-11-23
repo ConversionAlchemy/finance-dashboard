@@ -330,7 +330,11 @@ table.plan tr.line td, table.plan tr.note td { background-image: radial-gradient
 table.plan tr.line td > span, table.plan tr.note td > span { padding-right: 8px; background: var(--card); }
 table.plan tr.line td.num > span, table.plan tr.note td.num > span { padding: 0 0 0 8px; }
 table.plan tr.note td.num > span:empty { padding: 0; }
-table.plan tr.line td.num, table.plan tr.note td.num { padding-left: 12px; background-clip: content-box; background-origin: content-box; }
+/* the dots run unbroken across the row; each figure keeps a small gap either side of it */
+table.plan tr.line td.num > span, table.plan tr.note td.num > span { padding: 0 12px 0 8px; }
+table.plan tr.line td.num:last-child > span, table.plan tr.note td.num:last-child > span { padding-right: 0; }
+table.plan th.num:not(:last-child), table.plan tr:not(.line):not(.note) td.num:not(:last-child) { padding-right: 12px; }
+table.plan td.num > span:empty { display: none; }
 table.plan td.editable { cursor: text; }
 table.plan td.editable:hover { color: var(--grey); }
 .fc .filters label.box { margin-left: auto; }

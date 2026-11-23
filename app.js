@@ -850,34 +850,6 @@ function renderForecast() {
 
   renderPlanTable(conf, inp, p, t);
 
-  // the next 12 months from the start month; months that have started show what actually happened
-  const today = iso(new Date()), ents = personal ? ["personal"] : ["ie ltd", "uk ltd"], months = [];
-  for (let k = 0; k < 12; k++) {
-    const m = addMonths(start, k), x = { from: iso(m), to: iso(monthEnd(m)) }, started = x.from <= today;
-    const rows = started ? sel(x, null, ents) : [];
-    months.push({ m: iso(m).slice(0, 7), label: MONTHS[m.getMonth()], started, inc: total(rows.filter(isIncome)), cost: -total(rows.filter(r => isCost(r) || (!personal && r.category === "director pay"))) });
-  }
-  const host = $("#fcChart"), chart = el("div"); host.replaceChildren(chart);
-  const max = niceMax(Math.max(p.rev, p.costs, ...months.map(d => Math.max(d.inc, d.cost)), 1));
-  svgBox(chart, 250, W2 => {
-    const L = 40, base = 190, y = v => base - v / max * 180, slot = (W2 - L) / 12; let s = "";
-    [0, 0.25, 0.5, 0.75, 1].forEach(tk => { const v = max * tk; s += '<line x1="' + L + '" x2="' + W2 + '" y1="' + y(v) + '" y2="' + y(v) + '" style="stroke:' + (tk ? "var(--grid)" : "currentColor") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (tk ? short(v) : "0") + "</text>"; });
-    months.forEach((d, k) => {
-      const x = L + k * slot + slot * 0.14, bw = slot * 0.34, inc = d.started ? d.inc : p.rev, cost = d.started ? d.cost : p.costs, a = d.started ? 1 : 0.4;
-      s += '<g opacity="' + a + '"><rect x="' + x + '" y="' + y(inc) + '" width="' + bw + '" height="' + (base - y(inc)) + '" fill="' + GREEN + '"/><rect x="' + (x + bw + 2) + '" y="' + y(cost) + '" width="' + bw + '" height="' + (base - y(cost)) + '" fill="' + RED + '"/></g>'
-        + '<text x="' + x + '" y="' + (base + 20) + '" ' + F + ">" + (slot < 44 ? d.label[0] : d.label) + "</text>";
-      const n = inc - cost; if (slot >= 44) s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:' + (n < 0 ? RTEXT : GTEXT) + '">' + (n < 0 ? "" : "+") + short(n) + "</text>";
-      s += '<rect x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="245" fill="transparent" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|" + (d.started ? "actual" : "plan") + "|" + w.rev + " " + money(inc) + "|" + w.cost + " " + money(cost) + (d.started ? "|plan: " + w.rev + " " + money(p.rev) + ", " + w.cost + " " + money(p.costs) : "")) + '"/>';
-    });
-    return s;
-  });
-  const lg = el("div", "legend"); lg.innerHTML = '<span><span class="sw" style="background:' + GREEN + '"></span>' + w.rev + '</span><span><span class="sw" style="background:' + RED + '"></span>' + w.cost + '</span><span><span class="sw faded" style="background:' + GREEN + '"></span>plan</span>';
-  host.append(lg);
-  const figs = personal
-    ? [["income", p.rev * 12, "g", money(p.rev) + " a month"], ["spending", p.costs * 12, "r", money(p.costs) + " a month"], ["saved / invested", p.keep * 12, p.keep < 0 ? "r" : "g", p.rev > 0 ? pct(p.keep / p.rev) + " of income" : ""]]
-    : [["revenue", p.rev * 12, "g", money(p.rev) + " a month"], ["costs", p.costs * 12, "r", money(p.costs) + " a month"], ["profit before tax", p.pbt * 12, p.pbt < 0 ? "r" : "g", p.rev > 0 ? pct(p.pbt / p.rev) + " of revenue" : ""], ["corporation tax", p.tax * 12, "r", money(p.tax) + " a month"], ["profit after tax", p.keep * 12, p.keep < 0 ? "r" : "g", money(p.keep) + " a month"]];
-  $("#fcFigs").replaceChildren(...figs.map(([l, v, c, n]) => { const d = el("div", "fig"); d.append(el("i", null, l), el("span", c, money(v)), el("span", null, n)); return d; }));
-
 }
 /* the plan next to what actually happened, line by line, for a month, the last 3 months or the year so far */
 const PT_MAP = { rent: ["rent"], bills: ["bills"], groceries: ["groceries"], "eating out": ["eating out"], transport: ["transport"], travel: ["travel", "travel & meals"] };
