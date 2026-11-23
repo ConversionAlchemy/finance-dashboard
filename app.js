@@ -26,8 +26,9 @@ function loadPass() { try { const p = JSON.parse(sessionStorage.getItem(TOKEN_KE
 let book = null;       // { id, title, tabs: [{ name, sheetId, display, raw, fmt }] }
 let view = "dashboard";
 let data = null;       // parsed model used by the dashboard
-const dash = { scope: null, cur: "USD", fy: null, q: 0, month: null, stream: null, cat: null, acct: null, allTasks: false };
-const SCOPES = [["all", "everything"], ["companies", "both companies"], ["ie ltd", "irish company"], ["uk ltd", "uk company"], ["personal", "personal"]];
+const dash = { mode: "business", co: "companies", scope: "companies", period: "fy", cur: "USD", fy: null, month: null, stream: null, cat: null, acct: null, allTasks: false };
+const COMPANIES = [["companies", "both companies"], ["ie ltd", "irish company"], ["uk ltd", "uk company"]];
+const PERIODS = [["all", "all time"], ["3m", "last 3 months"], ["1m", "last month"]];
 const FX_FALLBACK = { GBPEUR: 1.17, USDEUR: 0.92, EURGBP: 0.855, USDGBP: 0.78 };
 const TX_CLEAR = { text: "", entity: "", entities: null, category: "", account: "", group: "", only: null, from: "", to: "" };
 const txFilter = Object.assign({}, TX_CLEAR);
@@ -267,12 +268,9 @@ function balance(to, fn, ents = scopeEntities()) {
   return Object.entries(byCur).reduce((a, [c, v]) => a + v * rate(m, c || "EUR", dash.cur), 0);
 }
 function scopeEntities(sc = dash.scope) {
-  if (sc === "all") return ["ie ltd", "uk ltd", "personal"];
   if (sc === "companies") return ["ie ltd", "uk ltd"];
   return [sc];
 }
-// in a combined view, pay from your own company into your personal account is internal, so it isn't counted twice
-function internal(r) { return dash.scope === "all" && r.entity === "personal" && r.category === "income" && r.merchant.includes("conversion alchemy"); }
 
 /* ---------- periods ---------- */
 const iso = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
@@ -294,10 +292,18 @@ function fyList() {
   const out = []; for (let d = first; d <= last; d = addMonths(d, 12)) out.push({ start: iso(d), label: fyLabel(d, ye) });
   return out.reverse();
 }
+// all time, the last 3 complete months, the last complete month, or a financial year; a clicked month overrides them
 function range() {
-  const s = new Date(dash.fy + "T00:00:00");
+  const thisMonth = new Date(iso(new Date()).slice(0, 7) + "-01T00:00:00");
   if (dash.month) { const m = new Date(dash.month + "-01T00:00:00"); return { from: iso(m), to: iso(monthEnd(m)), months: 1, kind: "month" }; }
-  if (dash.q) { const a = addMonths(s, (dash.q - 1) * 3); return { from: iso(a), to: iso(monthEnd(addMonths(a, 2))), months: 3, kind: "quarter" }; }
+  if (dash.period === "1m") { const m = addMonths(thisMonth, -1); return { from: iso(m), to: iso(monthEnd(m)), months: 1, kind: "month" }; }
+  if (dash.period === "3m") { const m = addMonths(thisMonth, -3); return { from: iso(m), to: iso(monthEnd(addMonths(m, 2))), months: 3, kind: "3m" }; }
+  if (dash.period === "all") {
+    const ents = scopeEntities(), first = data.rows.find(r => ents.includes(r.entity)), a = new Date(((first && first.date) || iso(thisMonth)).slice(0, 7) + "-01T00:00:00");
+    const n = (thisMonth.getFullYear() - a.getFullYear()) * 12 + thisMonth.getMonth() - a.getMonth() + 1;
+    return { from: iso(a), to: iso(monthEnd(thisMonth)), months: n, kind: "all" };
+  }
+  const s = new Date(dash.fy + "T00:00:00");
   return { from: iso(s), to: iso(monthEnd(addMonths(s, 11))), months: 12, kind: "year" };
 }
 function prevRange(r) {
@@ -313,7 +319,7 @@ function monthsElapsed(rg) {
 
 /* ---------- maths ---------- */
 const inRange = (r, rg) => r.date >= rg.from && r.date <= rg.to;
-const sel = (rg, fn, ents = scopeEntities()) => data.rows.filter(r => ents.includes(r.entity) && inRange(r, rg) && !internal(r) && (!fn || fn(r)));
+const sel = (rg, fn, ents = scopeEntities()) => data.rows.filter(r => ents.includes(r.entity) && inRange(r, rg) && (!fn || fn(r)));
 const total = (rows, f = "v") => rows.reduce((a, r) => a + r[f], 0);
 const isIncome = r => r.group === "income";
 const isCost = r => r.group === "cost";
@@ -328,7 +334,7 @@ function figures(rg) {
   const rows = sel(rg);
   const income = total(rows.filter(isIncome));
   const costs = total(rows.filter(isCost));
-  const pay = dash.scope === "all" ? 0 : total(rows.filter(r => r.category === "director pay"));
+  const pay = total(rows.filter(r => r.category === "director pay"));
   const profit = income + costs + pay;
   let tax = 0; scopeEntities().filter(e => e !== "personal").forEach(e => (tax += taxFor(e, rg)));
   return { income, costs, pay, profit, tax, cash: balance(rg.to), taxPaid: -total(rows.filter(r => r.group === "tax")) };
@@ -345,6 +351,7 @@ function groupBy(rows, key) {
   const m = new Map(); rows.forEach(r => { const k = typeof key === "function" ? key(r) : r[key]; m.set(k, (m.get(k) || 0) + r.v); });
   return [...m.entries()].map(([label, v]) => ({ label, v })).sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
 }
+const catName = c => c === "check" ? "to categorise" : c;
 const streamOf = r => r.stream || (dash.scope === "personal" ? r.category : "other");
 
 /* ---------- svg ---------- */
@@ -366,21 +373,16 @@ function lead(label, value, o = {}) {
   return d;
 }
 
-/* ---------- stepping through periods: a year, a quarter or a month at a time ---------- */
+/* ---------- stepping through periods: a year, or a month once you click into one ---------- */
 function nextPeriod(dir, fys = fyList()) {
   const has = fy => fys.some(f => f.start === fy);
   if (dash.month) {
     const m = addMonths(new Date(dash.month + "-01T00:00:00"), dir), fy = iso(fyStartFor(iso(m), scopeYe()));
-    return has(fy) ? { fy, q: 0, month: iso(m).slice(0, 7) } : null;
+    return has(fy) && iso(m) <= iso(new Date()) ? { fy, month: iso(m).slice(0, 7) } : null;
   }
-  if (dash.q) {
-    let q = dash.q + dir, fy = dash.fy;
-    if (q < 1) { q = 4; fy = iso(addMonths(new Date(fy + "T00:00:00"), -12)); }
-    if (q > 4) { q = 1; fy = iso(addMonths(new Date(fy + "T00:00:00"), 12)); }
-    return has(fy) ? { fy, q, month: null } : null;
-  }
+  if (dash.period !== "fy") return { period: "fy" };
   const fy = iso(addMonths(new Date(dash.fy + "T00:00:00"), 12 * dir));
-  return has(fy) ? { fy, q: 0, month: null } : null;
+  return has(fy) ? { fy, month: null } : null;
 }
 function stepPeriod(dir) { const n = nextPeriod(dir); if (n) { Object.assign(dash, n); renderDashboard(); } }
 document.addEventListener("keydown", e => {
@@ -389,25 +391,42 @@ document.addEventListener("keydown", e => {
   if (e.key === "ArrowRight") { e.preventDefault(); stepPeriod(1); }
 });
 
+/* ---------- business or personal: the master switch in the top bar ---------- */
+function modeFilter() { return dash.mode === "personal" ? { entity: "personal", entities: null } : { entity: "", entities: ["ie ltd", "uk ltd"] }; }
+function renderMode() {
+  const mp = $("#modePick"); mp.innerHTML = "";
+  [["business", "business"], ["personal", "personal"]].forEach(([k, t]) => {
+    const b = el("button", null, t); b.type = "button"; b.setAttribute("aria-pressed", dash.mode === k);
+    b.onclick = () => {
+      if (dash.mode === k) return;
+      dash.mode = k; dash.fy = null; dash.month = null; dash.flow = dash.acct = null;
+      if (view === "dashboard") renderDashboard();
+      else { renderMode(); if (view.toLowerCase() === "transactions") { Object.assign(txFilter, TX_CLEAR, modeFilter()); showView(view); } }
+    };
+    mp.append(b);
+  });
+}
+
 /* ---------- dashboard ---------- */
 function renderDashboard() {
-  if (!SCOPES.some(([k]) => k === dash.scope)) dash.scope = "all";
-  if (!SYMBOL[dash.cur]) dash.cur = "USD";
+  dash.scope = dash.mode === "personal" ? "personal" : (COMPANIES.some(([k]) => k === dash.co) ? dash.co : (dash.co = "companies"));
+  dash.cur = "USD";
   const fys = fyList();
-  if (!fys.find(f => f.start === dash.fy)) { const cur = fyStartFor(iso(new Date()), scopeYe()); dash.fy = (fys.find(f => f.start === iso(cur)) || fys[0] || {}).start; dash.q = 0; dash.month = null; }
-  try { localStorage.setItem(VIEW_KEY, JSON.stringify({ scope: dash.scope, cur: dash.cur })); } catch {}
+  if (!fys.find(f => f.start === dash.fy)) { const cur = fyStartFor(iso(new Date()), scopeYe()); dash.fy = (fys.find(f => f.start === iso(cur)) || fys[0] || {}).start; dash.month = null; }
+  try { localStorage.setItem(VIEW_KEY, JSON.stringify({ mode: dash.mode, co: dash.co, period: dash.period })); } catch {}
   if (!dash.fy) return;
+  renderMode();
 
   const sp = $("#scopePick"); sp.innerHTML = "";
-  SCOPES.forEach(([k, label]) => { const o = el("option", null, label); o.value = k; o.selected = k === dash.scope; sp.append(o); });
-  sp.onchange = () => { dash.scope = sp.value; dash.fy = null; dash.stream = dash.cat = dash.acct = null; renderDashboard(); };
-  const cp = $("#currencyPick"); cp.innerHTML = "";
-  ["USD", "EUR", "GBP"].forEach(c => { const b = el("button", null, SYMBOL[c]); b.type = "button"; b.setAttribute("aria-pressed", c === dash.cur); b.setAttribute("aria-label", c.toLowerCase()); b.onclick = () => { dash.cur = c; data.fxCache = {}; applyCurrency(); renderDashboard(); }; cp.append(b); });
+  COMPANIES.forEach(([k, label]) => { const o = el("option", null, label); o.value = k; o.selected = k === dash.co; sp.append(o); });
+  sp.onchange = () => { dash.co = sp.value; dash.fy = null; dash.flow = dash.acct = null; renderDashboard(); };
+  $("#coBox").hidden = dash.mode === "personal";
+  const pp = $("#periodPick"); pp.innerHTML = "";
+  PERIODS.forEach(([k, t]) => { const b = el("button", null, t); b.type = "button"; b.setAttribute("aria-pressed", dash.period === k && !dash.month); b.onclick = () => { dash.period = k; dash.month = null; renderDashboard(); }; pp.append(b); });
   const yp = $("#yearPick"); yp.innerHTML = "";
   fys.forEach(f => { const o = el("option", null, f.label); o.value = f.start; o.selected = f.start === dash.fy; yp.append(o); });
-  yp.onchange = () => { dash.fy = yp.value; dash.q = 0; dash.month = null; renderDashboard(); };
-  const qp = $("#quarterPick"); qp.innerHTML = "";
-  ["full year", "q1", "q2", "q3", "q4"].forEach((t, k) => { const b = el("button", null, t); b.type = "button"; b.setAttribute("aria-pressed", dash.q === k && !dash.month); b.onclick = () => { dash.q = k; dash.month = null; renderDashboard(); }; qp.append(b); });
+  yp.onchange = () => { dash.fy = yp.value; dash.period = "fy"; dash.month = null; renderDashboard(); };
+  yp.closest(".step").classList.toggle("on", dash.period === "fy" && !dash.month);
   const chip = $("#monthChip");
   chip.hidden = !dash.month; if (dash.month) { const m = new Date(dash.month + "-01T00:00:00"); chip.textContent = MONTHS[m.getMonth()] + " " + m.getFullYear(); chip.onclick = () => { dash.month = null; renderDashboard(); }; }
   const personal = dash.scope === "personal";
@@ -425,40 +444,52 @@ function renderDashboard() {
 }
 
 function renderSummary(rg) {
-  const f = figures(rg), p = figures(prevRange(rg)), personal = dash.scope === "personal";
-  const than = { year: "last year", quarter: "the previous quarter", month: "the previous month" }[rg.kind];
-  const change = (a, b) => { if (!b) return "nothing to compare"; const c = (Math.abs(a) - Math.abs(b)) / Math.abs(b); return pct(Math.abs(c)) + (c >= 0 ? " higher than " : " lower than ") + than; };
+  const f = figures(rg), p = rg.kind === "all" ? {} : figures(prevRange(rg)), personal = dash.scope === "personal";
+  const than = { year: "last year", "3m": "the 3 months before", month: "the month before" }[rg.kind];
+  const change = (a, b) => { if (rg.kind === "all") return "since " + longDate(rg.from); if (!b) return "nothing to compare"; const c = (Math.abs(a) - Math.abs(b)) / Math.abs(b); return pct(Math.abs(c)) + (c >= 0 ? " higher than " : " lower than ") + than; };
   const cols = [
     ["revenue", f.income, "g", change(f.income, p.income)],
     ["costs", -f.costs, "r", change(f.costs, p.costs)],
-    [personal ? "left over" : "profit before tax", f.profit, f.profit < 0 ? "r" : "g", f.income ? pct(f.profit / f.income) + " of revenue" : ""]
+    [personal ? "left over" : "profit before tax", f.profit, f.profit < 0 ? "r" : "g", f.income > 0 && Math.abs(f.profit / f.income) <= 5 ? pct(f.profit / f.income) + " of revenue" : ""]
   ];
   if (!personal) cols.push(["tax due (estimate)", f.tax, "r", f.taxPaid > 0.5 ? money(f.taxPaid) + " paid" : "nothing paid yet"]);
-  cols.push(["cash", f.cash, f.cash < 0 ? "r" : "g", change(f.cash, p.cash)]);
+  cols.push(["cash", f.cash, f.cash < 0 ? "r" : "g", rg.kind === "all" ? "today" : change(f.cash, p.cash)]);
   $("#summary").replaceChildren(...cols.map(([label, v, cls, note]) => { const d = el("div", "fig"); d.append(el("i", null, label), el("span", cls, money(v)), el("span", null, note)); return d; }));
 }
 
+// the months the chart shows: the financial year, everything since the start, or the 12 months up to the period picked
+function chartWindow() {
+  const thisMonth = new Date(iso(new Date()).slice(0, 7) + "-01T00:00:00");
+  if (dash.period === "all") {
+    const ents = scopeEntities(), first = data.rows.find(r => ents.includes(r.entity)), a = new Date(((first && first.date) || iso(thisMonth)).slice(0, 7) + "-01T00:00:00");
+    return { start: a, n: (thisMonth.getFullYear() - a.getFullYear()) * 12 + thisMonth.getMonth() - a.getMonth() + 1 };
+  }
+  if (dash.period === "fy") return { start: new Date(dash.fy + "T00:00:00"), n: 12 };
+  return { start: addMonths(thisMonth, -12), n: 12 };
+}
 function renderMonthChart(rg) {
   const host = $("#monthChart"); host.className = "chart";
-  const start = new Date(dash.fy + "T00:00:00"), today = iso(new Date());
+  const today = iso(new Date()), win = chartWindow(), start = win.start, N = win.n;
   const series = [];
-  for (let k = 0; k < 12; k++) {
+  for (let k = 0; k < N; k++) {
     const m = addMonths(start, k), x = { from: iso(m), to: iso(monthEnd(m)) }, rows = sel(x);
-    series.push({ m: iso(m).slice(0, 7), label: MONTHS[m.getMonth()], started: x.from <= today, inc: total(rows.filter(isIncome)), cost: -total(rows.filter(isCost)) });
+    series.push({ m: iso(m).slice(0, 7), mi: m.getMonth(), label: MONTHS[m.getMonth()], started: x.from <= today, inc: total(rows.filter(isIncome)), cost: -total(rows.filter(isCost)) });
   }
   const max = niceMax(Math.max(1, ...series.map(s => Math.max(s.inc, s.cost))));
   const chart = el("div");
   host.replaceChildren(chart);
-  const fyStart = dash.fy, fyEnd = iso(monthEnd(addMonths(start, 11)));
+  const fyStart = iso(start), fyEnd = iso(monthEnd(addMonths(start, N - 1))), fyStartMonth = scopeYe() % 12;
   const dated = upcomingFilings();
   svgBox(chart, 250, W => {
-    const L = 40, base = 190, y = v => base - v / max * 180, slot = (W - L) / 12; let s = "";
+    const L = 40, base = 190, y = v => base - v / max * 180, slot = (W - L) / N, many = N > 18; let s = "";
     [0, 0.25, 0.5, 0.75, 1].forEach(t => { const v = max * t; s += '<line x1="' + L + '" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="' + (t ? "#ecebe7" : "#26241f") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (t ? short(v) : "0") + "</text>"; });
     series.forEach((d, k) => {
       const x = L + k * slot + slot * 0.14, bw = slot * 0.34, on = d.m >= rg.from.slice(0, 7) && d.m <= rg.to.slice(0, 7);
       s += '<g opacity="' + (on ? 1 : 0.3) + '"><rect x="' + x + '" y="' + y(d.inc) + '" width="' + bw + '" height="' + (base - y(d.inc)) + '" fill="' + GREEN + '"/>'
         + '<rect x="' + (x + bw + 2) + '" y="' + y(d.cost) + '" width="' + bw + '" height="' + (base - y(d.cost)) + '" fill="' + RED + '"/></g>'
-        + '<text x="' + x + '" y="' + (base + 20) + '" ' + F + ">" + (slot < 44 ? d.label[0] : d.label) + "</text>";
+        + (many ? (d.mi === 0 ? '<text x="' + (L + k * slot) + '" y="' + (base + 20) + '" ' + F + ">" + d.m.slice(0, 4) + "</text>" : "") : '<text x="' + x + '" y="' + (base + 20) + '" ' + F + ">" + (slot < 44 ? d.label[0] : d.label) + "</text>");
+      // a dotted line where each financial year starts
+      if (k && d.mi === fyStartMonth) { const lx = L + k * slot; s += '<line x1="' + lx + '" x2="' + lx + '" y1="4" y2="' + base + '" stroke="#26241f" stroke-dasharray="2 3"/><text x="' + (lx + 4) + '" y="14" ' + F + ' font-style="italic">' + fyLabel(new Date(d.m + "-01T00:00:00"), scopeYe()) + "</text>"; }
       if (slot >= 44 && d.started && (d.inc || d.cost)) { const n = d.inc - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" fill="' + (n < 0 ? RTEXT : GTEXT) + '">' + (n < 0 ? "" : "+") + short(n) + "</text>"; }
       s += '<rect class="hit" x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="245" fill="transparent" data-month="' + d.m + '" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|revenue " + money(d.inc) + "|costs " + money(d.cost) + "|" + (d.inc - d.cost < 0 ? "loss " : "profit ") + money(Math.abs(d.inc - d.cost))) + '"/>';
     });
@@ -470,7 +501,7 @@ function renderMonthChart(rg) {
   const lg = el("div", "legend"); lg.innerHTML = '<span><span class="sw" style="background:' + GREEN + '"></span>revenue</span><span><span class="sw" style="background:' + RED + '"></span>costs</span>';
   if (dated.length) {
     const later = dated.filter(g => g.when > fyEnd), n = later.reduce((a, g) => a + g.items.length, 0);
-    lg.insertAdjacentHTML("beforeend", '<span><span class="dot"></span>filing target</span>' + (n ? '<span data-tip="' + esc(later.map(g => g.tip).join("| |")) + '">→ ' + n + " after " + esc(longDate(fyEnd)) + "</span>" : ""));
+    lg.insertAdjacentHTML("beforeend", '<span><span class="dot"></span>filing target</span>' + (n ? '<span data-tip="' + esc(later.map(g => g.tip).join("| |")) + '">→ ' + n + " later</span>" : ""));
   }
   lg.insertAdjacentHTML("beforeend", '<span class="range">' + esc(longDate(rg.from) + " – " + longDate(rg.to)) + "</span>");
   host.append(lg);
@@ -507,7 +538,7 @@ function renderFlow(rg) {
   const isSel = (side, key) => f.side === side && f.key === key;
 
   const allInc = streams.reduce((a, s) => a + s.v, 0);
-  const outRows = sel(rg, r => isCost(r) || (dash.scope !== "all" && r.category === "director pay"));
+  const outRows = sel(rg, r => isCost(r) || r.category === "director pay");
   const profit = allInc + total(outRows);
   const pctOf = (m, v) => v > 0 ? " (" + pct(m / v) + ")" : "";
   list.replaceChildren(el("i", "mt", "revenue"));
@@ -515,7 +546,7 @@ function renderFlow(rg) {
   streams.forEach(s => list.append(lead(s.label, money(s.v) + pctOf(s.margin, s.v), { sel: isSel("rev", s.label), onclick: () => go("rev", s.label) })));
   list.append(el("i", "mt group", "costs"));
   list.append(lead("all costs", money(-total(costRows)), { sel: isSel("cost", null), onclick: () => go("cost", null) }));
-  cats.slice(0, 6).forEach(c => list.append(lead(c.label, money(-c.v), { sel: isSel("cost", c.label), onclick: () => go("cost", c.label) })));
+  cats.slice(0, 6).forEach(c => list.append(lead(catName(c.label), money(-c.v), { sel: isSel("cost", c.label), onclick: () => go("cost", c.label) })));
   const rest = cats.slice(6); if (rest.length) list.append(lead("everything else", money(-rest.reduce((a, c) => a + c.v, 0)), { onclick: () => goTransactions({ group: "cost" }) }));
 
   // what the chart shows for the selection
@@ -529,7 +560,7 @@ function renderFlow(rg) {
     if (!s) { const top = steps.slice(0, 5), r = steps.slice(5).reduce((a, c) => a + c.v, 0); steps = r < -0.5 ? top.concat([{ label: "everything else", v: r }]) : top; }
     title = s ? s.label : "all revenue";
     items = [{ label: s ? "margin" : "profit", v: Math.max(0, keepV), keep: true, value: [el("span", keepV < 0 ? "r" : "g", money(keepV)), document.createTextNode(pctOf(keepV, v))] }]
-      .concat(steps.map(st => ({ label: st.label, v: -st.v, value: [el("span", "r", money(st.v)), document.createTextNode(pctOf(-st.v, v))], onclick: catClick(st.label) })));
+      .concat(steps.map(st => ({ label: catName(st.label), v: -st.v, value: [el("span", "r", money(st.v)), document.createTextNode(pctOf(-st.v, v))], onclick: catClick(st.label) })));
     items.total = { label: "revenue", v };
   } else {
     kind = "cost";
@@ -538,10 +569,10 @@ function renderFlow(rg) {
     const shown = parts.slice(0, 6), others = parts.slice(6);
     if (others.length) shown.push({ label: others.length + " others", v: others.reduce((a, p) => a + p.v, 0), others: true });
     const sum = -shown.reduce((a, p) => a + p.v, 0);
-    title = f.key || "all costs";
-    items = shown.map(it => ({ label: it.label, v: -it.v, value: money(-it.v) + pctOf(-it.v, sum),
+    title = f.key ? catName(f.key) : "all costs";
+    items = shown.map(it => ({ label: f.key ? it.label : catName(it.label), v: -it.v, value: money(-it.v) + pctOf(-it.v, sum),
       onclick: it.others ? () => goTransactions(f.key ? { category: f.key } : { group: "cost" }) : f.key ? () => goTransactions({ category: f.key, text: it.label }) : () => go("cost", it.label) }));
-    items.total = { label: f.key || "all costs", v: sum };
+    items.total = { label: f.key ? catName(f.key) : "all costs", v: sum };
   }
   let cost = 0; items.forEach(it => { it.c = it.keep ? GREEN : BAR_REDS[Math.min(cost++, 5)]; });
 
@@ -641,7 +672,7 @@ function renderFilings() {
   if (!gs.length) box.append(el("p", "empty", "nothing coming up"));
   gs.forEach(g => g.items.forEach(i => {
     const e = filingEstimate(i), row = el("div", "filing");
-    const top = el("div", "filing-top"); top.append(el("span", null, i.name + (dash.scope === "all" || dash.scope === "companies" ? " (" + i.who + ")" : "")), el("span", g.soon ? "hl" : null, g.late ? "target passed" : longDate(i.target || i.deadline)));
+    const top = el("div", "filing-top"); top.append(el("span", null, i.name + (dash.scope === "companies" ? " (" + i.who + ")" : "")), el("span", g.soon ? "hl" : null, g.late ? "target passed" : longDate(i.target || i.deadline)));
     row.append(top);
     const more = [i.deadline ? "due " + longDate(i.deadline) : "", e != null && e > 0.5 ? "about " + money(e) : ""].filter(Boolean).join(", ");
     if (more) row.append(el("i", null, more));
@@ -917,11 +948,13 @@ function start() {
   const tabs = $("#tabs"); tabs.innerHTML = "";
   ["dashboard"].concat(book.tabs.map(t => t.name).filter(n => !HIDE_TABS.includes(n.toLowerCase()))).forEach(n => {
     const b = el("button", null, n); b.type = "button"; b.setAttribute("role", "tab"); b.dataset.view = n;
-    b.onclick = () => { if (n.toLowerCase() === "transactions") Object.assign(txFilter, TX_CLEAR); showView(n); };
+    b.onclick = () => { if (n.toLowerCase() === "transactions") Object.assign(txFilter, TX_CLEAR, modeFilter()); showView(n); };
     tabs.append(b);
   });
   $("#openInSheets").href = "https://docs.google.com/spreadsheets/d/" + encodeURIComponent(book.id) + "/edit";
-  try { const v = JSON.parse(localStorage.getItem(VIEW_KEY)) || {}; dash.scope = v.scope || dash.scope; dash.cur = v.cur || dash.cur; } catch {}
+  try { const v = JSON.parse(localStorage.getItem(VIEW_KEY)) || {}; ["mode", "co", "period"].forEach(k => { if (v[k]) dash[k] = v[k]; }); } catch {}
+  if (!PERIODS.some(([k]) => k === dash.period)) dash.period = "fy";
+  renderMode();
   applyCurrency();
   showView(view);
 }

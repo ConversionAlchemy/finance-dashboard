@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=PT+Sans:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1795455356">
+  <link rel="stylesheet" href="styles.css?v=1795456376">
 </head>
 <body>
 
@@ -31,6 +31,7 @@
         <a id="openInSheets" target="_blank" rel="noopener">open in google sheets</a>
         <button type="button" id="signOut">sign out</button>
       </div>
+      <div class="seg mode" id="modePick" role="group" aria-label="business or personal"></div>
       <span class="status" id="status"></span>
     </div>
     <nav class="tabs" id="tabs" role="tablist"></nav>
@@ -41,12 +42,11 @@
       <div class="dash-main">
         <div class="filters">
           <b>summary</b>
-          <label class="box"><select id="scopePick" aria-label="show"></select></label>
-          <div class="seg" id="currencyPick" role="group" aria-label="currency"></div>
-          <div class="seg step"><button type="button" class="prev" aria-label="previous period">‹</button><label><select id="yearPick" aria-label="year"></select></label><button type="button" class="next" aria-label="next period">›</button></div>
-          <div class="seg" id="quarterPick" role="group" aria-label="period"></div>
+          <label class="box" id="coBox"><select id="scopePick" aria-label="company"></select></label>
+          <div class="seg" id="periodPick" role="group" aria-label="period"></div>
+          <div class="seg step"><button type="button" class="prev" aria-label="previous year">‹</button><label><select id="yearPick" aria-label="year"></select></label><button type="button" class="next" aria-label="next year">›</button></div>
           <button class="box" id="monthChip" type="button" hidden></button>
-          <button class="box" id="pdfButton" type="button">statements pdf</button>
+          <button class="box" id="pdfButton" type="button">export</button>
         </div>
         <div class="sec summary"><span></span><div><div id="monthChart"></div><div id="summary"></div></div></div>
         <div class="sec"><b>revenue and costs</b><div class="split"><div class="pick" id="flowList"></div><div id="flowDetail"></div></div></div>
@@ -62,6 +62,6 @@
 
   <div id="print" class="print"></div>
   <div class="tip" id="tip" hidden></div>
-  <script src="app.js?v=1795455356"></script>
+  <script src="app.js?v=1795456376"></script>
 </body>
 </html>

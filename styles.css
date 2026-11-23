@@ -35,7 +35,7 @@ button { cursor: pointer; }
 
 /* top bar: brand menu left, tabs right */
 .top { position: sticky; top: 0; z-index: 20; display: flex; justify-content: space-between; align-items: stretch; gap: 16px; height: var(--top-h); padding: 0 24px; background: #fff; border-bottom: 1px solid var(--hair); }
-.brand { position: relative; display: flex; align-items: center; gap: 14px; }
+.brand { position: relative; display: flex; align-items: center; gap: 20px; }
 .brand-button { padding: 0; border: 0; background: none; white-space: nowrap; }
 .brand-button:hover, .brand-button:hover * { color: var(--grey); }
 .menu { position: absolute; top: calc(var(--top-h) - 6px); left: 0; z-index: 30; display: grid; min-width: 200px; background: #fff; border: 1px solid var(--hair); }
@@ -52,6 +52,12 @@ main { padding: 12px 24px 40px; }
 .dash { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 12px; }
 .filters { position: sticky; top: var(--top-h); z-index: 15; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 18px 20px 14px; background: #fff; border-bottom: 1px solid var(--hair); }
 .filters > b { width: 130px; margin-right: 16px; }
+.filters .box, .filters .seg { height: 40px; }
+.filters .box { padding: 0 16px; }
+.filters .seg button { padding: 0 16px; }
+.filters .box select, .filters .step select { height: 38px; padding: 0 8px; }
+.step.on label { background: var(--soft); }
+.seg.mode { height: 32px; }
 .sec.summary { padding-top: 18px; }
 .box { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; background: #fff; border: 1px solid var(--hair); white-space: nowrap; }
 .box select, .step select { height: 30px; padding: 0 4px; border: 0; background: none; font-weight: 700; cursor: pointer; }
