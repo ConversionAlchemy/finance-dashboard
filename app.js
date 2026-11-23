@@ -921,13 +921,24 @@ function renderPlanTable(conf, inp, p, t) {
     lines.push(["note", "corporation tax rate", rate, null, "", "corporation tax", "pct"]);
     lines.push(["total", "profit after tax", pbtP - taxP, pbtA - taxA, "up"]);
   }
+  // each section's total sits on its bold heading; the results get a section of their own
+  { const out = []; let lastHead = -1;
+    lines.forEach(l => {
+      if (l[0] === "total" && /^total /.test(l[1])) { const h = out[lastHead]; out[lastHead] = ["head", h[1], l[2], l[3], l[4]]; return; }
+      if (l[0] === "total" && (l[1] === "profit before tax" || l[1] === "balance")) { out.push(["head", personal ? "left over" : "profit"]); lastHead = out.length - 1; }
+      if (l[0] === "total") l = ["line", l[1], l[2], l[3], l[4]];
+      if (l[0] === "head") lastHead = out.length;
+      out.push(l);
+    });
+    lines.length = 0; lines.push(...out); }
   const tb = el("table", "plan"), th = el("tr"), w = personal ? ["", "budget", "actual", "left"] : ["", "plan", "actual", "difference"];
   w.forEach((x, k) => th.append(el("th", k ? "num" : null, x))); tb.append(el("thead")); tb.firstChild.append(th);
   const body = el("tbody");
   const fmtIn = (x, kind) => kind === "pct" ? (Math.round(x * 1000) / 10) + "%" : kind === "count" ? String(Math.round(x * 100) / 100) : money(x);
   lines.forEach(([kind, label, plan, act, good, key, ikind]) => {
     const tr = el("tr", kind);
-    if (kind === "head") { const td = el("td", null, label); td.colSpan = 4; tr.append(td); return body.append(tr); }
+    if (kind === "head" && plan == null) { const td = el("td", null, label); td.colSpan = 4; tr.append(td); return body.append(tr); }
+    if (kind === "head") tr.className = "head line";
     // each value sits in a span over a dotted line, so the eye can run from the label across to its figures
     const sp = (cls, txt) => { const td = el("td", cls); td.append(el("span", null, txt)); return td; };
     tr.append(sp(null, label));
