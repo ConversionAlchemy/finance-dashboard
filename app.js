@@ -21,6 +21,9 @@ const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&a
 const TEST = window.__TEST_BOOK__ || null;
 
 const auth = { token: null, expires: 0, client: null };
+const TOKEN_KEY = "ca-finance-pass";   // kept for this tab only, cleared when the tab closes or on sign out
+function savePass() { try { auth.token ? sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ t: auth.token, e: auth.expires })) : sessionStorage.removeItem(TOKEN_KEY); } catch {} }
+function loadPass() { try { const p = JSON.parse(sessionStorage.getItem(TOKEN_KEY)); if (p && p.e > Date.now()) { auth.token = p.t; auth.expires = p.e; } else sessionStorage.removeItem(TOKEN_KEY); } catch {} }
 let book = null;       // { id, title, tabs: [{ name, sheetId, display, raw, fmt }] }
 let view = "dashboard";
 let data = null;       // parsed model used by the dashboard
@@ -49,6 +52,7 @@ function requestToken(then) {
     if (r.error) return gateError("sign-in didn't finish. try again.");
     auth.token = r.access_token;
     auth.expires = Date.now() + (Number(r.expires_in) - 60) * 1000;
+    savePass();
     then();
   };
   auth.client.error_callback = () => gateError("the sign-in window closed before it finished.");
@@ -82,7 +86,7 @@ async function api(url, opts = {}) {
   const res = await fetch(url, Object.assign({}, opts, {
     headers: Object.assign({ Authorization: "Bearer " + auth.token, "Content-Type": "application/json" }, opts.headers || {})
   }));
-  if (res.status === 401) { auth.token = null; throw Object.assign(new Error("signed out"), { expired: true }); }
+  if (res.status === 401) { auth.token = null; savePass(); throw Object.assign(new Error("signed out"), { expired: true }); }
   if (res.status === 403 || res.status === 404) throw new Error("this file isn't available. open it again with open file.");
   if (!res.ok) throw new Error("google sheets didn't respond (" + res.status + "). try again.");
   return res.json();
@@ -845,7 +849,7 @@ $("#openInSheets").addEventListener("click", () => menu(false));
 $("#signOut").addEventListener("click", () => {
   menu(false);
   if (auth.token && window.google && google.accounts) google.accounts.oauth2.revoke(auth.token, () => {});
-  auth.token = null; book = null; data = null; setLastFile(null); showGate();
+  auth.token = null; savePass(); book = null; data = null; setLastFile(null); showGate();
 });
 $("#pdfButton").addEventListener("click", saveStatements);
 let resizeTimer = null;
@@ -859,4 +863,8 @@ document.addEventListener("mousemove", e => {
 document.addEventListener("visibilitychange", () => { if (!document.hidden && book && !TEST && !signedIn()) status("signed out. sign out from the menu, then sign in again."); });
 
 if (TEST) { book = TEST; start(); }
-else loadScript("https://accounts.google.com/gsi/client").catch(() => gateError("google sign-in couldn't load. check your connection."));
+else {
+  loadScript("https://accounts.google.com/gsi/client").catch(() => gateError("google sign-in couldn't load. check your connection."));
+  loadPass();
+  const f = lastFile(); if (signedIn() && f) { $("#gate").hidden = true; loadBook(f.id); }
+}
