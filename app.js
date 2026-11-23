@@ -407,9 +407,9 @@ function renderSummary(rg) {
   const than = { year: "last year", quarter: "the previous quarter", month: "the previous month" }[rg.kind];
   const change = (a, b) => { if (!b) return "nothing to compare"; const c = (Math.abs(a) - Math.abs(b)) / Math.abs(b); return pct(Math.abs(c)) + (c >= 0 ? " higher than " : " lower than ") + than; };
   const cols = [
-    ["income", f.income, "g", change(f.income, p.income)],
+    ["revenue", f.income, "g", change(f.income, p.income)],
     ["costs", -f.costs, "r", change(f.costs, p.costs)],
-    [personal ? "left over" : "profit before tax", f.profit, f.profit < 0 ? "r" : "g", f.income ? pct(f.profit / f.income) + " of income" : ""]
+    [personal ? "left over" : "profit before tax", f.profit, f.profit < 0 ? "r" : "g", f.income ? pct(f.profit / f.income) + " of revenue" : ""]
   ];
   if (!personal) cols.push(["tax due (estimate)", f.tax, "r", f.taxPaid > 0.5 ? money(f.taxPaid) + " paid" : "nothing paid yet"]);
   cols.push(["cash", f.cash, f.cash < 0 ? "r" : "g", change(f.cash, p.cash)]);
@@ -438,11 +438,11 @@ function renderMonthChart(rg) {
         + '<rect x="' + (x + bw + 2) + '" y="' + y(d.cost) + '" width="' + bw + '" height="' + (base - y(d.cost)) + '" fill="' + RED + '"/></g>'
         + '<text x="' + x + '" y="' + (base + 20) + '" ' + F + ">" + d.label + "</text>";
       if (d.started && (d.inc || d.cost)) { const n = d.inc - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" fill="' + (n < 0 ? RTEXT : GTEXT) + '">' + (n < 0 ? "" : "+") + short(n) + "</text>"; }
-      s += '<rect class="hit" x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="250" fill="transparent" data-month="' + d.m + '" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|income " + money(d.inc) + "|costs " + money(d.cost) + "|" + (d.inc - d.cost < 0 ? "loss " : "profit ") + money(Math.abs(d.inc - d.cost))) + '"/>';
+      s += '<rect class="hit" x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="250" fill="transparent" data-month="' + d.m + '" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|revenue " + money(d.inc) + "|costs " + money(d.cost) + "|" + (d.inc - d.cost < 0 ? "loss " : "profit ") + money(Math.abs(d.inc - d.cost))) + '"/>';
     });
     return s;
   });
-  const lg = el("div", "legend"); lg.innerHTML = '<span><span class="sw" style="background:' + GREEN + '"></span>income</span><span><span class="sw" style="background:' + RED + '"></span>costs</span>';
+  const lg = el("div", "legend"); lg.innerHTML = '<span><span class="sw" style="background:' + GREEN + '"></span>revenue</span><span><span class="sw" style="background:' + RED + '"></span>costs</span>';
   host.append(lg);
   host.querySelectorAll(".hit").forEach(b => b.addEventListener("click", () => { dash.month = dash.month === b.dataset.month ? null : b.dataset.month; renderDashboard(); }));
 }
@@ -459,7 +459,7 @@ function streamMargins(rg) {
     if (Math.abs(share) > 0.5) steps.push({ label: "payment fees", v: share });
     steps.sort((a, b) => a.v - b.v);
     const top = steps.slice(0, 4), rest = steps.slice(4).reduce((a, s) => a + s.v, 0);
-    if (Math.abs(rest) > 0.5) top.push({ label: "other costs", v: rest });
+    if (Math.abs(rest) > 0.5) top.push({ label: "everything else", v: rest });
     const margin = i.v + steps.reduce((a, s) => a + s.v, 0);
     return { label: i.label, v: i.v, steps: top, margin };
   });
@@ -467,19 +467,24 @@ function streamMargins(rg) {
 function renderStreams(rg) {
   const list = $("#streamList"), detail = $("#streamDetail"), streams = streamMargins(rg);
   list.replaceChildren(el("i", "mt", dash.scope === "personal" ? "source" : "stream"));
-  if (!streams.length) { list.append(el("p", "empty", "no income in this period")); detail.replaceChildren(); return; }
-  if (!streams.find(s => s.label === dash.stream)) dash.stream = streams[0].label;
-  streams.forEach(s => {
-    const v = [el("span", null, money(s.v))]; if (s.v > 0) { v.push(document.createTextNode(" (" + pct(s.margin / s.v) + ")")); }
-    list.append(lead(s.label, v, { sel: s.label === dash.stream, onclick: () => { dash.stream = s.label; renderStreams(rg); } }));
-  });
-  list.append(lead("all revenue", money(streams.reduce((a, s) => a + s.v, 0)), { italic: true, cls: "total" }));
+  if (!streams.length) { list.append(el("p", "empty", "no revenue in this period")); detail.replaceChildren(); return; }
+  if (dash.stream && !streams.find(s => s.label === dash.stream)) dash.stream = null;
+  // all revenue: where every dollar goes, cost category by cost category, down to profit
+  const allInc = streams.reduce((a, s) => a + s.v, 0);
+  const outRows = sel(rg, r => isCost(r) || (dash.scope !== "all" && r.category === "director pay"));
+  const outs = groupBy(outRows, "category").filter(c => c.v < -0.5).sort((a, b) => a.v - b.v);
+  const outTop = outs.slice(0, 4), outRest = outs.slice(4).reduce((a, c) => a + c.v, 0);
+  if (outRest < -0.5) outTop.push({ label: "everything else", v: outRest });
+  const all = { label: "all revenue", v: allInc, steps: outTop, margin: allInc + total(outRows), profit: true };
+  const pctOf = x => x.v > 0 ? " (" + pct(x.margin / x.v) + ")" : "";
+  [all].concat(streams).forEach(x => list.append(lead(x.label, [el("span", null, money(x.v) + pctOf(x))], { sel: x === all ? !dash.stream : x.label === dash.stream, onclick: () => { dash.stream = x === all ? null : x.label; renderStreams(rg); } })));
 
-  const s = streams.find(x => x.label === dash.stream);
+  const s = dash.stream ? streams.find(x => x.label === dash.stream) : all;
   const box = el("div", "chart"), key = el("div");
   detail.replaceChildren(el("i", "mt", s.label), box, key);
   const SHADES = [RED, "#ff8566", "#ffad99", "#ffd0c4", "#ffe6df"];
-  const parts = [{ label: "margin", v: Math.max(0, s.margin), c: GREEN }].concat(s.steps.map((st, k) => ({ label: st.label, v: -st.v, c: SHADES[k] || SHADES[4] })));
+  const keep = s.profit ? "profit" : "margin";
+  const parts = [{ label: keep, v: Math.max(0, s.margin), c: GREEN }].concat(s.steps.map((st, k) => ({ label: st.label, v: -st.v, c: SHADES[k] || SHADES[4] })));
   const whole = parts.reduce((a, p) => a + Math.max(0, p.v), 0) || 1;
   svgBox(box, 40, W => {
     let x = 0, out = "";
@@ -494,8 +499,9 @@ function renderStreams(rg) {
   });
   key.append(lead("revenue", money(s.v)));
   parts.forEach(p => {
-    const v = [el("span", p.label === "margin" ? (s.margin < 0 ? "r" : "g") : "r", money(p.label === "margin" ? s.margin : -p.v))];
-    if (s.v > 0) { v.push(document.createTextNode(" (" + pct((p.label === "margin" ? s.margin : p.v) / s.v) + ")")); }
+    const isKeep = p.label === keep;
+    const v = [el("span", isKeep ? (s.margin < 0 ? "r" : "g") : "r", money(isKeep ? s.margin : -p.v))];
+    if (s.v > 0) { v.push(document.createTextNode(" (" + pct((isKeep ? s.margin : p.v) / s.v) + ")")); }
     key.append(lead(p.label, v, { swatch: p.c }));
   });
 }

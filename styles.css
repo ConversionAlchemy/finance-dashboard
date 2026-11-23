@@ -83,7 +83,8 @@ table.sum { border-collapse: collapse; width: 100%; }
 .chart svg { display: block; width: 100%; }
 .chart .hit { cursor: pointer; }
 .chart .hit:hover { fill: rgba(38, 36, 31, 0.05); }
-.legend { margin: 4px 0 18px; }
+#monthChart { margin-top: 22px; }
+.legend { margin: 4px 0 0; }
 .legend span + span { margin-left: 16px; }
 .pie { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 22px; align-items: start; }
 
