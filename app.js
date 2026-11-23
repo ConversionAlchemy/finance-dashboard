@@ -1041,15 +1041,25 @@ function renderAttention() {
   });
 }
 // tasks: a plain text box, one task per line. it saves to the tasks tab when you click away
+let fitTasks = () => {};
+addEventListener("resize", () => fitTasks());
 function renderTasks() {
   const box = $("#tasksBox"), t = data.tasks;
   box.hidden = !t; if (!t) return;
   const ta = el("textarea", "tasks-text"); ta.value = openTasks().map(x => x.text).join("\n\n"); ta.spellcheck = true; ta.setAttribute("aria-label", "tasks");
-  const fit = () => { ta.style.height = "auto"; ta.style.height = (ta.scrollHeight + 2) + "px"; };
-  ta.oninput = fit;
+  // the box ends level with the bottom of the cash section; longer lists scroll inside the text box
+  const fit = () => {
+    const cash = $("#cashList") && $("#cashList").closest(".sec"), side = box.closest(".side-col");
+    let room = Infinity;
+    if (cash && side && cash.offsetParent && box.getBoundingClientRect().left >= cash.getBoundingClientRect().right) {
+      room = cash.getBoundingClientRect().bottom - ta.getBoundingClientRect().top - parseFloat(getComputedStyle(box).paddingBottom);
+    }
+    ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight + 2, Math.max(160, room)) + "px";
+  };
+  ta.oninput = fit; fitTasks = fit;
   ta.onblur = () => saveTasks(ta.value.split("\n").map(x => x.trim()).filter(Boolean));
   box.replaceChildren(el("b", "hd", "tasks"), ta);
-  setTimeout(fit, 0);
+  setTimeout(fit, 0); setTimeout(fit, 150);
 }
 async function saveTasks(mine) {
   const t = data.tasks, personal = dash.mode === "personal", before = openTasks().map(x => x.text);

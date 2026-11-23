@@ -260,7 +260,7 @@ input.inline { box-sizing: border-box; width: 110px; height: 26px; padding: 0 6p
 .lead.filing.late > span:first-child, .lead.filing.late > span:last-child { color: var(--rtext); }
 .lead.filing:hover > span { color: var(--grey); }
 #filingsBox > .more { margin-top: 12px; }
-.tasks-text { display: block; width: 100%; min-height: 120px; padding: 8px 0; border: 0; border-top: 1px solid var(--hair); background: none; color: var(--ink); font: inherit; line-height: 1.6; resize: none; overflow: hidden; }
+.tasks-text { display: block; width: 100%; min-height: 120px; padding: 8px 0; border: 0; border-top: 1px solid var(--hair); background: none; color: var(--ink); font: inherit; line-height: 1.6; resize: none; overflow-y: auto; }
 .tasks-text:focus { outline: 0; border-top-color: var(--ink); }
 .grid tr.flash td { --rowbg: var(--yellow); background-color: var(--yellow) !important; color: #1a1917; }
 
