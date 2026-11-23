@@ -680,7 +680,7 @@ function renderFlow(rg) {
     title = s ? s.label : w.allRev;
     items = [{ label: s ? (personal ? w.keep : "margin") : w.keep, v: Math.max(0, keepV), keep: true, value: [el("span", keepV < 0 ? "r" : "g", money(keepV)), document.createTextNode(pctOf(keepV, v))] }]
       .concat(steps.map(st => ({ label: catName(st.label), v: -st.v, value: [el("span", "r", money(st.v)), document.createTextNode(pctOf(-st.v, v))], onclick: catClick(st.label) })));
-    items.total = { label: w.rev, v };
+    items.total = { label: w.rev, v }; items.keepV = keepV;
   } else {
     kind = "cost";
     const pick = f.key ? costRows.filter(r => r.category === f.key) : costRows;
@@ -695,32 +695,43 @@ function renderFlow(rg) {
   }
   let cost = 0; items.forEach(it => { it.c = it.keep ? GREEN : BAR_REDS[Math.min(cost++, 5)]; });
 
-  detail.replaceChildren(el("i", "mt", title), splitBar(items, rg));
+  detail.replaceChildren(el("i", "mt", title), kind === "rev" ? waterfall(items) : columns(items));
   if (!items.length) detail.append(el("p", "empty", "nothing in this period"));
 }
 
-function splitBar(items, rg) {
-  const wrap = el("div"), box = el("div", "chart"), key = el("div");
-  const whole = items.reduce((a, p) => a + Math.max(0, p.v), 0) || 1;
-  wrap.append(box, key);
-  // in the bar, slivers under 5% join one "other" segment whose tooltip lists them; the list below keeps every line
-  const small = items.filter(p => !p.keep && p.v > 0 && p.v / whole < 0.05);
-  const segs = small.length > 1 ? items.filter(p => !small.includes(p)).concat([{ label: "other", v: small.reduce((a, p) => a + p.v, 0), c: small[0].c, tip: small.map(p => p.label + "  " + money(p.v) + " (" + pct(p.v / whole) + ")") }]) : items;
-  setTimeout(() => { svgBox(box, 40, W => {
-    let x = 0, out = "";
-    segs.forEach((p, k) => {
-      const w = Math.max(0, p.v) / whole * W; if (w <= 0) return;
-      const t = pct(p.v / whole), fs = Math.max(7, Math.min(14, (w - 4) / (t.length * 0.56)));
-      out += '<g class="seg-part' + (p.onclick ? " hit" : "") + '" data-k="' + k + '" data-tip="' + esc(p.tip ? "other, " + t + "|" + p.tip.join("|") : p.label + "|" + money(p.v) + "|" + t) + '"><rect x="' + x + '" y="0" width="' + w + '" height="32" fill="' + p.c + '" style="stroke:var(--card)" stroke-width="1"/>'
-        + '<text x="' + (w > 44 ? x + 8 : x + w / 2) + '" y="' + (16 + fs * 0.35) + '" font-size="' + fs.toFixed(1) + '" font-family="PT Sans, Arial, sans-serif" fill="#1a1917" text-anchor="' + (w > 44 ? "start" : "middle") + '" pointer-events="none">' + t + "</text></g>";
-      x += w;
-    });
-    return out;
-  }); box.querySelectorAll(".seg-part").forEach(g => { const it = segs[g.dataset.k]; if (it.onclick) g.addEventListener("click", it.onclick); }); }, 0);
-  if (items.total) key.append(lead(items.total.label, money(items.total.v)));
-  items.forEach(it => key.append(lead(it.label, it.value || money(it.v), { swatch: it.c, onclick: it.onclick })));
-  if (rg.months > 1) key.append(lead("per month", money((items.total ? items.total.v : whole) / monthsElapsed(rg)), { italic: true, cls: "total" }));
+// one column per figure: the bar on top, then its share, its name and its amount underneath
+function colChart(cols, lo, hi) {
+  const wrap = el("div", "wf"), span = (hi - lo) || 1;
+  cols.forEach(c => {
+    const col = el("div", "wf-col" + (c.onclick ? " link" : "")), plot = el("div", "wf-plot"), bar = el("div", "wf-bar");
+    const a = Math.min(c.from, c.to), z = Math.max(c.from, c.to);
+    bar.style.bottom = ((a - lo) / span * 100) + "%"; bar.style.height = Math.max(0.5, (z - a) / span * 100) + "%"; bar.style.background = c.c;
+    plot.append(bar);
+    if (lo < 0) { const zero = el("div", "wf-zero"); zero.style.bottom = (-lo / span * 100) + "%"; plot.append(zero); }
+    const lab = el("div", "wf-lab"); lab.append(el("span", "", c.pct), el("span", "", c.label), el("span", c.cls, c.value));
+    lab.title = c.label + "  " + c.value + " (" + c.pct + ")";
+    col.append(plot, lab);
+    if (c.onclick) col.addEventListener("click", c.onclick);
+    wrap.append(col);
+  });
   return wrap;
+}
+
+// revenue at the start, each cost stepping down from it, and what is left at the end
+function waterfall(items) {
+  if (!items.total || !items.total.v) return el("div");
+  const v = items.total.v, keep = items.find(i => i.keep), steps = items.filter(i => !i.keep), k = items.keepV;
+  const cols = [{ label: items.total.label, from: 0, to: v, c: GREEN, pct: "100%", value: money(v), cls: "g" }];
+  let top = v;
+  steps.forEach(s => { cols.push({ label: s.label, from: top, to: top - s.v, c: s.c, pct: pct(s.v / v), value: money(-s.v), cls: "r", onclick: s.onclick }); top -= s.v; });
+  cols.push({ label: keep.label, from: 0, to: k, c: k < 0 ? RED : GREEN, pct: pct(k / v), value: money(k), cls: k < 0 ? "r" : "g" });
+  return colChart(cols, Math.min(0, top, k), v);
+}
+
+// a cost category broken down: one column each, tallest first
+function columns(items) {
+  const sum = items.total ? items.total.v : 0, hi = Math.max(0, ...items.map(i => i.v));
+  return colChart(items.map(i => ({ label: i.label, from: 0, to: i.v, c: i.c, pct: pct(i.v / (sum || 1)), value: money(-i.v), cls: "r", onclick: i.onclick })), 0, hi);
 }
 
 function renderCash(rg) {

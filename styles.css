@@ -79,10 +79,12 @@ button { cursor: pointer; }
 .menu button, .menu a { padding: 8px 14px; border: 0; background: var(--card); color: var(--ink); text-align: left; text-decoration: none; }
 .menu button:hover, .menu a:hover { color: var(--grey); }
 .status { font-style: italic; white-space: nowrap; }
-.tabs { display: flex; align-items: flex-end; gap: 4px; min-width: 0; overflow-x: auto; }
-.tabs button { padding: 7px 16px; background: var(--bg); border: 1px solid var(--hair); border-bottom: 0; white-space: nowrap; }
-.tabs button[aria-selected="true"] { background: var(--card); font-weight: 700; position: relative; top: 1px; }
-.tabs button:hover { text-decoration: underline; }
+.tabs { display: inline-flex; align-self: center; height: 32px; min-width: 0; overflow: visible; background: var(--card); border: 1px solid var(--hair); }
+.tabs button { padding: 0 12px; border: 0; border-left: 1px solid var(--hair); background: var(--card); white-space: nowrap; }
+.tabs button:first-child { border-left: 0; }
+.tabs button[hidden] + button { border-left: 1px solid var(--hair); }
+.tabs button[aria-selected="true"] { position: relative; z-index: 1; font-weight: 700; outline: 2px solid var(--ink); outline-offset: 2px; }
+.tabs button:hover { color: var(--grey); }
 
 /* dashboard layout */
 main { padding: 12px 24px 40px; }
@@ -367,3 +369,14 @@ html.fit .mark { padding: 14px 0 16px; }
 .grid.tx tr.gaprow.year td { height: 60px; }
 .grid.tx tbody tr.gaprow:hover td { background: var(--card) !important; }
 .sheet-head .chips { display: flex; flex-wrap: wrap; gap: 8px; flex-basis: 100%; }
+
+/* waterfall and column charts */
+.wf { display: flex; }
+.wf-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+.wf-plot { position: relative; height: 220px; border-bottom: 1px solid var(--ink); }
+.wf-bar { position: absolute; left: 12%; right: 12%; }
+.wf-zero { position: absolute; left: 0; right: 0; border-top: 1px dotted var(--dots); }
+.wf-lab { display: flex; flex-direction: column; align-items: center; padding: 8px 3px 0; text-align: center; }
+.wf-lab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-col.link { cursor: pointer; }
+.wf-col.link:hover .wf-lab, .wf-col.link:hover .wf-lab * { color: var(--grey); }
