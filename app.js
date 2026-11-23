@@ -994,6 +994,32 @@ function renderPlanTable(conf, inp, p, t) {
   });
   tb.append(body);
   $("#fcTable").replaceChildren(tb);
+  renderPlanChart(lines, personal);
+}
+// plan (blue) next to actual (green for money in, red for money out) for each section, for the period chosen
+function renderPlanChart(lines, personal) {
+  const pick = personal ? [["income", "up"], ["spending", "down"], ["balance", "up", "left over"]] : [["revenue", "up"], ["costs", "down"], ["profit after tax", "up", "profit"]];
+  const groups = pick.map(([key, good, label]) => { const l = lines.find(x => x[1] === key && x[2] != null); return l ? { label: label || key, plan: l[2], act: l[3], good } : null; }).filter(Boolean);
+  const host = $("#fcChart"), box = el("div"); host.replaceChildren(box);
+  if (!groups.length) return;
+  const vals = groups.flatMap(g => [g.plan, g.act]), top = niceMax(Math.max(1, ...vals)), bot = Math.min(0, ...vals) < 0 ? -niceMax(-Math.min(0, ...vals)) : 0;
+  svgBox(box, 300, W => {
+    const L = 44, T = 10, B = 250, y = v => B - (v - bot) / (top - bot) * (B - T), slot = (W - L) / groups.length; let s = "";
+    const ticks = bot < 0 ? [bot, 0, top] : [0, top * 0.25, top * 0.5, top * 0.75, top];
+    ticks.forEach(v => { s += '<line x1="' + L + '" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" style="stroke:' + (v === 0 ? "currentColor" : "var(--grid)") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (v ? short(v) : "0") + "</text>"; });
+    groups.forEach((g, k) => {
+      const bw = slot * 0.3, x = L + k * slot + slot * 0.18, ok = g.good === "down" ? g.act <= g.plan : g.act >= g.plan;
+      const bar = (bx, v, fill) => { const y0 = y(Math.max(0, v)), h = Math.abs(y(v) - y(0)); return '<rect x="' + bx + '" y="' + y0 + '" width="' + bw + '" height="' + h + '" style="fill:' + fill + '"/>'; };
+      const actFill = g.label === "costs" || g.label === "spending" ? RED : g.act < 0 ? RED : GREEN;
+      s += bar(x, g.plan, "var(--plan)") + bar(x + bw + 3, g.act, actFill);
+      s += '<text x="' + (x + bw + 1.5) + '" y="' + (B + 22) + '" ' + F + ' text-anchor="middle">' + g.label + "</text>";
+      s += '<text x="' + (x + bw + 1.5) + '" y="' + (B + 42) + '" font-size="14" text-anchor="middle" font-family="PT Sans, Arial, sans-serif" style="fill:' + (ok ? GTEXT : RTEXT) + '">' + (g.act - g.plan < 0 ? "−" : "+") + short(Math.abs(g.act - g.plan)) + "</text>";
+      s += '<rect x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="' + B + '" fill="transparent" data-tip="' + esc(g.label + "|" + (personal ? "budget " : "plan ") + money(g.plan) + "|actual " + money(g.act)) + '"/>';
+    });
+    return s;
+  });
+  const lg = el("div", "legend"); lg.innerHTML = '<span><span class="sw" style="background:var(--plan)"></span>' + (personal ? "budget" : "plan") + '</span><span><span class="sw" style="background:' + GREEN + '"></span>actual</span>';
+  host.append(lg);
 }
 async function saveInput(tab, cell, value, col = 1) {
   if (!cell) return;

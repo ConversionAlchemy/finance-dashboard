@@ -10,6 +10,7 @@ html.dark {
   --card: #1c1b19;
   --grid: #2a2926;
   --dots: #57544e;
+  --plan: #6f97ff;
   --hatch: #5a5751;
   --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23e8e6e1' stroke-width='1.3'/%3E%3C/svg%3E");
   --dots2: #45433f;
@@ -38,6 +39,7 @@ html.dark {
   --card: #ffffff;
   --grid: #ecebe7;
   --dots: #b8b3a8;
+  --plan: #5b84f0;
   --hatch: #c4c0b7;
   --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2326241f' stroke-width='1.3'/%3E%3C/svg%3E");
   --dots2: #d3cfc6;
@@ -96,7 +98,7 @@ main { padding: 12px 24px 40px; }
 .filters .step select { padding-left: 16px !important; }
 .filters .box > select { width: 100%; }
 .filters .box:has(> #scopePick) { width: 170px; }
-.step.on label { background: var(--soft); }
+.step.on label { position: relative; z-index: 1; background: var(--card); outline: 2px solid var(--ink); outline-offset: 2px; }
 .seg.mode { height: 32px; }
 .sec.summary { padding-top: 18px; }
 .box { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; background: var(--card); border: 1px solid var(--hair); white-space: nowrap; }
@@ -106,7 +108,8 @@ main { padding: 12px 24px 40px; }
 .seg { display: inline-flex; height: 32px; background: var(--card); border: 1px solid var(--hair); }
 .seg button { padding: 0 12px; border: 0; border-left: 1px solid var(--hair); background: var(--card); }
 .seg button:first-child { border-left: 0; }
-.seg button[aria-pressed="true"] { background: var(--soft); font-weight: 700; }
+/* the chosen option stays white with a 2px off-black ring just outside it, the same as keyboard focus */
+.seg button[aria-pressed="true"] { position: relative; z-index: 1; background: var(--card); font-weight: 700; outline: 2px solid var(--ink); outline-offset: 2px; }
 .seg button:hover { color: var(--grey); }
 .range { margin-left: auto; font-style: italic; }
 .filters #pdfButton { margin-left: auto; }
@@ -182,7 +185,8 @@ main { padding: 12px 24px 40px; }
 .grid tbody tr:hover td.y { background: var(--yellow); }
 .grid td.edit { cursor: text; }
 /* editing a cell: a white box with a 1px off-black line all the way round, drawn inside the cell so nothing cuts it off */
-.grid td input { box-sizing: border-box; width: 100%; min-width: 80px; height: 26px; padding: 0 6px; border: 1px solid var(--ink); outline: 0; background: var(--card); }
+.grid td input { box-sizing: border-box; width: 100%; min-width: 80px; height: 26px; padding: 0 6px; border: 0; outline: 2px solid var(--ink); outline-offset: 2px; background: var(--card); }
+.grid td:has(> input), .grid tr:has(input) > td { overflow: visible !important; }
 .grid td select.cat { height: 26px; padding: 0; border: 0; background: transparent; cursor: pointer; }
 .grid td select.cat:hover { color: var(--grey); }
 .grid a { color: var(--ink); }
@@ -232,7 +236,7 @@ main { padding: 12px 24px 40px; }
 .fc #fcInCost .mt, .fc #fcInRev .mt { margin-bottom: 6px; }
 .editable { cursor: text; }
 .editable:hover { color: var(--grey); }
-input.inline { box-sizing: border-box; width: 110px; height: 26px; padding: 0 6px; border: 1px solid var(--ink); outline: 0; background: var(--card); text-align: right; }
+input.inline { box-sizing: border-box; width: 110px; height: 26px; padding: 0 6px; border: 0; outline: 2px solid var(--ink); outline-offset: 2px; background: var(--card); text-align: right; }
 
 /* transactions pop-up */
 .modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 40px 24px; background: var(--veil); }
@@ -348,3 +352,6 @@ table.plan td.editable:hover { color: var(--grey); }
 .mark { padding: 28px 0 36px; text-align: center; font-weight: 400; color: var(--grey); user-select: none; }
 .legend .sw.hatch { background: repeating-linear-gradient(45deg, var(--hatch) 0 1px, transparent 1px 4px), repeating-linear-gradient(-45deg, var(--hatch) 0 1px, transparent 1px 4px); }
 .legend .ln { display: inline-block; width: 18px; margin-right: 8px; vertical-align: 4px; }
+/* forecast: the table and, beside it, plan against actual as bars */
+.fc-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 3fr); gap: 48px; align-items: start; }
+@media (max-width: 1100px) { .fc-grid { grid-template-columns: minmax(0, 1fr); } }
