@@ -1456,6 +1456,8 @@ function txTable({ grid, scroller, host, tab, list, shownCols, bal, cats, entiti
     list.slice(shown, shown + TX_PAGE).forEach(r => {
       const row = txRow(tab, r, shownCols, cats, entities, accounts, bal, TX_FMT2), m = r.date.slice(0, 7), y = r.date.slice(0, 4);
       if (m !== lastM) {
+        // a blank row between months, two between years
+        if (lastM) { const gap = el("tr", "gaprow" + (y !== lastY ? " year" : "")), td = el("td"); td.colSpan = shownCols.length + 1; gap.append(td); frag.append(gap); }
         // the month's label and totals sit at the left beside its rows, pinned while you scroll through it
         gut = el("td", "gut"); gut.rowSpan = 1;
         const pin = el("div", "pin"), box = el("div", "pinbox");

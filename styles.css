@@ -362,3 +362,6 @@ html.fit .sheet-scroll { max-height: none !important; }
 /* on the sheet tabs the table runs nearly to the foot of the window, the watermark just below it */
 html.fit main { padding-bottom: 0; }
 html.fit .mark { padding: 14px 0 16px; }
+.grid.tx tr.gaprow td { height: 30px; padding: 0; background: var(--card) !important; background-image: none !important; }
+.grid.tx tr.gaprow.year td { height: 60px; }
+.grid.tx tbody tr.gaprow:hover td { background: var(--card) !important; }
