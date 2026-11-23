@@ -457,6 +457,7 @@ function renderDashboard() {
   renderFlow(rg);
   renderFilings();
   renderCash(rg);
+  renderTasks();
   renderAttention();
 }
 
@@ -677,7 +678,7 @@ function filingDates() {
     for (let j = i + 1; j < rows.length; j++) {
       const x = rows[j] || []; if (!lc(x[c - 1])) break;
       const d = k => (/^\d{4}-\d{2}-\d{2}/.exec(String(x[k] || "")) || [""])[0];
-      out.push({ name: lc(x[c - 1]), who: lc(x[c]), opens: d(c + 1), target: d(c + 2), deadline: d(c + 3), notes: lc(x[c + 4]) });
+      out.push({ row: j, col: c + 5, name: lc(x[c - 1]), who: lc(x[c]), opens: d(c + 1), target: d(c + 2), deadline: d(c + 3), notes: lc(x[c + 4]), status: lc(x[c + 5]) || "coming up" });
     }
     break;
   }
@@ -691,7 +692,7 @@ function filingEstimate(f) {
 }
 function upcomingFilings() {
   const today = iso(new Date()), ents = scopeEntities(), groups = new Map();
-  filingDates().filter(f => ents.includes(f.who) && (f.target || f.deadline) && !(f.deadline && f.deadline < today)).forEach(f => {
+  filingDates().filter(f => ents.includes(f.who) && (f.target || f.deadline) && f.status !== "done" && !(f.deadline && f.deadline < today)).forEach(f => {
     let when = f.target || f.deadline; const late = when < today; if (late) when = today;
     const g = groups.get(when) || { when, items: [], late: false }; g.items.push(f); g.late = g.late || late; groups.set(when, g);
   });
@@ -702,26 +703,32 @@ function upcomingFilings() {
   });
   return gs;
 }
+// filings: one item under another, with a status you can change. ticking means "filed, to confirm", never "done":
+// an item is only done once its confirmation is found, so a wrong tick costs nothing
+const FILING_STATUS = ["coming up", "to do", "filed, to confirm", "done"];
 function renderFilings() {
-  const box = $("#filingsBox"), gs = upcomingFilings(), fl = data.filings;
+  const box = $("#filingsBox"), fl = data.filings, today = iso(new Date()), ents = scopeEntities();
   box.replaceChildren(el("b", "hd", "filings"));
-  if (!gs.length) box.append(el("p", "empty", "nothing coming up"));
-  gs.forEach(g => g.items.forEach(i => {
-    const e = filingEstimate(i), row = el("div", "filing");
-    const top = el("div", "filing-top"); top.append(el("span", null, i.name + (dash.scope === "companies" ? " (" + i.who + ")" : "")), el("span", g.soon ? "hl" : null, g.late ? "target passed" : longDate(i.target || i.deadline)));
+  const items = filingDates().filter(f => ents.includes(f.who) && f.status !== "done");
+  const key = f => f.target || f.deadline || "9999";
+  items.sort((a, b) => key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0);
+  if (!items.length) box.append(el("p", "empty", "nothing to file"));
+  const save = (f, v) => { f.status = v; writeCell(fl, f.row, f.col, v).then(() => { if (TEST) fl.display[f.row][f.col] = v; renderFilings(); }); };
+  items.forEach(f => {
+    const row = el("div", "filing"), filed = f.status === "filed, to confirm";
+    const top = el("div", "filing-top"), tick = el("button", "tick" + (filed ? " on" : "")); tick.type = "button"; tick.setAttribute("aria-label", "filed");
+    tick.onclick = () => save(f, filed ? "to do" : "filed, to confirm");
+    top.append(tick, el("span", null, f.name + (ents.length > 1 ? " (" + f.who + ")" : "")));
     row.append(top);
-    const more = [i.deadline ? "due " + longDate(i.deadline) : "", e != null && e > 0.5 ? "about " + money(e) : ""].filter(Boolean).join(", ");
-    if (more) row.append(el("i", null, more));
+    const when = f.target || f.deadline, soon = when && (when < today || (new Date(when + "T00:00:00") - new Date(today + "T00:00:00")) / 864e5 <= 31);
+    const dates = [f.target ? (f.target < today ? "target passed " + longDate(f.target) : "target " + longDate(f.target)) : "", f.deadline ? "due " + longDate(f.deadline) : ""].filter(Boolean).join(", ");
+    if (dates) row.append(el("i", "filing-dates" + (soon && !filed ? " late" : ""), dates));
+    const st = el("select", "status"); FILING_STATUS.forEach(v => st.append(new Option(v, v))); st.value = FILING_STATUS.includes(f.status) ? f.status : "coming up";
+    st.onchange = () => save(f, st.value);
+    row.append(st);
     box.append(row);
-  }));
-  // count to-dos only in the sections of the filings tab that belong to this mode
-  let due = 0, mine = false;
-  if (fl) fl.display.forEach(r => {
-    const first = lc((r || []).find(v => lc(v)) || "");
-    if (/company\)$|^personal$/.test(first)) mine = (first === "personal") === (dash.mode === "personal");
-    else if (mine) (r || []).slice(0, 6).forEach(v => { if (["to do", "confirm"].includes(lc(v))) due++; });
   });
-  if (fl) { const b = el("button", "more", due + " to do or confirm"); b.type = "button"; b.onclick = () => showView(fl.name); box.append(b); }
+  if (fl) { const b = el("button", "more", "all filings"); b.type = "button"; b.onclick = () => showView(fl.name); box.append(b); }
 }
 
 
@@ -872,28 +879,36 @@ function attentionItems() {
   ].filter(i => i.n > 0 || i.urgent);
 }
 function renderAttention() {
-  const box = $("#attention"), items = attentionItems(), tasks = openTasks();
+  const box = $("#attention"), items = attentionItems().filter(i => i.n > 0);
   const copy = el("button", "btn", "copy"); copy.type = "button";
   copy.onclick = () => {
-    const txt = ["needs attention"].concat(items.map(i => i.n + " " + i.text), tasks.length ? ["", "tasks"] : [], tasks.map(t => "- " + t.text)).join("\n");
+    const txt = ["needs attention"].concat(items.map(i => i.n + " " + i.text)).join("\n");
     (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => { copy.textContent = "copied"; setTimeout(() => (copy.textContent = "copy"), 1500); }, () => {});
   };
   const hd = el("div", "hd"); hd.append(el("b", null, "needs attention"), copy);
   box.replaceChildren(hd);
+  if (!items.length) box.append(el("p", "empty", "nothing to flag"));
   items.forEach(i => {
     const b = el("button", "item"); b.type = "button";
-    b.append(el("span", i.urgent && i.n ? "hl" : null, String(i.n)), document.createTextNode(" " + i.text));
+    b.append(el("span", i.urgent ? "hl" : null, String(i.n)), document.createTextNode(" " + i.text));
     b.onclick = i.go; box.append(b);
   });
-  if (!data.tasks) return;
-  box.append(el("i", "mt tasks-label", tasks.length ? "tasks, " + tasks.length + " left" : "tasks, all done"));
-  const shown = dash.allTasks ? tasks : tasks.slice(0, 3);
+}
+function renderTasks() {
+  const box = $("#tasksBox"), tasks = openTasks();
+  box.hidden = !data.tasks; if (!data.tasks) return;
+  const copy = el("button", "btn", "copy"); copy.type = "button";
+  copy.onclick = () => { (navigator.clipboard ? navigator.clipboard.writeText(["tasks"].concat(tasks.map(t => "- " + t.text)).join("\n")) : Promise.reject()).then(() => { copy.textContent = "copied"; setTimeout(() => (copy.textContent = "copy"), 1500); }, () => {}); };
+  const hd = el("div", "hd"); hd.append(el("b", null, "tasks"), copy);
+  box.replaceChildren(hd);
+  if (!tasks.length) box.append(el("p", "empty", "all done"));
+  const shown = dash.allTasks ? tasks : tasks.slice(0, 5);
   shown.forEach(t => {
     const row = el("div", "task"), tick = el("button", "tick"); tick.type = "button"; tick.setAttribute("aria-label", "done");
-    tick.onclick = () => { row.classList.add("done"); setStrike(data.tasks, t.i, t.j, true); setTimeout(renderAttention, 700); };
+    tick.onclick = () => { row.classList.add("done"); setStrike(data.tasks, t.i, t.j, true); setTimeout(renderTasks, 700); };
     row.append(tick, el("span", null, t.text)); box.append(row);
   });
-  if (tasks.length > 3) { const m = el("button", "more", dash.allTasks ? "show fewer" : "show " + (tasks.length - 3) + " more"); m.type = "button"; m.onclick = () => { dash.allTasks = !dash.allTasks; renderAttention(); }; box.append(m); }
+  if (tasks.length > 5) { const m = el("button", "more", dash.allTasks ? "show fewer" : "show " + (tasks.length - 5) + " more"); m.type = "button"; m.onclick = () => { dash.allTasks = !dash.allTasks; renderTasks(); }; box.append(m); }
 }
 
 /* ---------- statements, saved as pdf through the print dialog ---------- */
