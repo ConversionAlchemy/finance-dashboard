@@ -1277,6 +1277,16 @@ function openTx(f, title) {
   $("#txModal").hidden = false;
 }
 function closeTx() { $("#txModal").hidden = true; if (txmDirty) { txmDirty = false; buildModel(); if (view === "dashboard") renderDashboard(); } }
+// on the sheet tabs the page fits the window exactly: the table scrolls inside its box and the watermark always shows
+function fitSheet() {
+  const sheet = !$("#viewSheet").hidden, sc = $("#sheetScroll");
+  document.documentElement.classList.toggle("fit", sheet);
+  if (!sheet) { sc.style.height = ""; return; }
+  sc.style.height = "0px";
+  const mark = $(".mark"), used = mark ? mark.getBoundingClientRect().bottom + scrollY : document.documentElement.scrollHeight;
+  sc.style.height = Math.max(200, Math.floor(innerHeight - used)) + "px";
+}
+addEventListener("resize", () => fitSheet());
 function showView(name) {
   view = name;
   [...$("#tabs").children].forEach(b => b.setAttribute("aria-selected", b.dataset.view === name));
@@ -1291,6 +1301,7 @@ function showView(name) {
     renderSheet(tabByName(name.toLowerCase()) || book.tabs.find(t => t.name === name));
     if (name.toLowerCase() === "forecast") { const b = el("button", "box", "back to the forecast"); b.type = "button"; b.onclick = () => { fc.sheet = false; showView("forecast"); }; $("#sheetHead").append(b); }
   }
+  fitSheet();
 }
 function usedSize(tab) {
   let rows = 0, cols = 0;
