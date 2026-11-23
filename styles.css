@@ -21,6 +21,7 @@ html.dark {
   color-scheme: dark;
 }
 :root {
+  --chev-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2326241f' stroke-width='1.3'/%3E%3C/svg%3E");
   --ink: #26241f;
   --hair: #e8e6e1;
   --bg: #fafaf9;
@@ -295,11 +296,12 @@ input.inline { width: 110px; height: 24px; padding: 0 4px; border: 0; outline: 2
 .grid.tx tbody tr:first-child > td { padding-top: 0; }
 .grid.tx .pick, .grid.tx .tag { cursor: pointer; }
 .grid.tx .pick:hover { color: var(--grey); }
-.grid .tag { display: inline-block; max-width: 100%; padding: 1px 8px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; background: hsl(var(--h) 70% 92%) !important; color: #26241f; }
-html.dark .grid .tag { background: hsl(var(--h) 22% 22%) !important; color: var(--ink); }
+/* category tags fill their column and carry the same dropdown arrow as every other dropdown */
+.grid .tag { display: inline-block; box-sizing: border-box; max-width: 100%; height: 26px; line-height: 26px; padding: 0 24px 0 8px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; background-color: hsl(var(--h) 70% 92%) !important; background-image: var(--chev-light); background-repeat: no-repeat; background-position: right 8px center; background-size: 10px 6px; color: #26241f; }
+html.dark .grid .tag { background-color: hsl(var(--h) 22% 22%) !important; background-image: var(--chev); color: var(--ink); }
 .grid.tx td.c-category { background-image: none; }
-.grid.tx td.c-category .tag, .grid.tx td.c-category select { width: 180px; }
-.grid td select.cat.tag { height: 26px; padding: 0 4px; field-sizing: fixed; background: hsl(var(--h) 70% 92%); color: #26241f; }
+.grid.tx td.c-category .tag, .grid.tx td.c-category select { width: 100%; }
+.grid td select.cat.tag { box-sizing: border-box; height: 26px; padding: 0 4px 0 8px; field-sizing: fixed; background: hsl(var(--h) 70% 92%); color: #26241f; }
 html.dark .grid td select.cat.tag { background: hsl(var(--h) 22% 22%); color: var(--ink); }
 .grid.tx td.c-account select, .grid.tx td.c-entity select { width: 100%; }
 .grid.tx tr.need > td:not(.c-category):not(.gut) { --rowbg: var(--need); }
