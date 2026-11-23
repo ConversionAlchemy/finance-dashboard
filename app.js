@@ -647,17 +647,20 @@ function splitBar(items, rg) {
   const wrap = el("div"), box = el("div", "chart"), key = el("div");
   const whole = items.reduce((a, p) => a + Math.max(0, p.v), 0) || 1;
   wrap.append(box, key);
+  // in the bar, slivers under 5% join one "other" segment whose tooltip lists them; the list below keeps every line
+  const small = items.filter(p => !p.keep && p.v > 0 && p.v / whole < 0.05);
+  const segs = small.length > 1 ? items.filter(p => !small.includes(p)).concat([{ label: "other", v: small.reduce((a, p) => a + p.v, 0), c: small[0].c, tip: small.map(p => p.label + "  " + money(p.v) + " (" + pct(p.v / whole) + ")") }]) : items;
   setTimeout(() => { svgBox(box, 40, W => {
     let x = 0, out = "";
-    items.forEach((p, k) => {
+    segs.forEach((p, k) => {
       const w = Math.max(0, p.v) / whole * W; if (w <= 0) return;
       const t = pct(p.v / whole), fs = Math.max(7, Math.min(14, (w - 4) / (t.length * 0.56)));
-      out += '<g class="seg-part' + (p.onclick ? " hit" : "") + '" data-k="' + k + '" data-tip="' + esc(p.label + "|" + money(p.v) + "|" + t) + '"><rect x="' + x + '" y="0" width="' + w + '" height="32" fill="' + p.c + '" style="stroke:var(--card)" stroke-width="1"/>'
+      out += '<g class="seg-part' + (p.onclick ? " hit" : "") + '" data-k="' + k + '" data-tip="' + esc(p.tip ? "other, " + t + "|" + p.tip.join("|") : p.label + "|" + money(p.v) + "|" + t) + '"><rect x="' + x + '" y="0" width="' + w + '" height="32" fill="' + p.c + '" style="stroke:var(--card)" stroke-width="1"/>'
         + '<text x="' + (w > 44 ? x + 8 : x + w / 2) + '" y="' + (16 + fs * 0.35) + '" font-size="' + fs.toFixed(1) + '" font-family="PT Sans, Arial, sans-serif" fill="#1a1917" text-anchor="' + (w > 44 ? "start" : "middle") + '" pointer-events="none">' + t + "</text></g>";
       x += w;
     });
     return out;
-  }); box.querySelectorAll(".seg-part").forEach(g => { const it = items[g.dataset.k]; if (it.onclick) g.addEventListener("click", it.onclick); }); }, 0);
+  }); box.querySelectorAll(".seg-part").forEach(g => { const it = segs[g.dataset.k]; if (it.onclick) g.addEventListener("click", it.onclick); }); }, 0);
   if (items.total) key.append(lead(items.total.label, money(items.total.v)));
   items.forEach(it => key.append(lead(it.label, it.value || money(it.v), { swatch: it.c, onclick: it.onclick })));
   if (rg.months > 1) key.append(lead("per month", money((items.total ? items.total.v : whole) / monthsElapsed(rg)), { italic: true, cls: "total" }));
@@ -752,7 +755,7 @@ function renderFilings() {
       const d = when(f), late = d && d < today;
       const value = !d ? f.status : late ? "now" : (() => { const x = new Date(d + "T00:00:00"); return x.getDate() + " " + MONTHS[x.getMonth()] + (d.slice(0, 4) === y ? "" : " " + d.slice(0, 4)); })();
       const row = lead(f.name + (f.who !== "personal" ? " (" + f.who + ")" : ""), value, { cls: "filing" + (late ? " late" : ""), onclick: () => openFiling(f.row) });
-      row.title = [d ? submitText(f, today) : "", f.deadline ? "due " + longDate(f.deadline) : "", f.notes].filter(Boolean).join("\n");
+      row.title = [f.name + (f.who !== "personal" ? " (" + f.who + ")" : ""), d ? submitText(f, today) : "", f.deadline ? "due " + longDate(f.deadline) : "", f.notes].filter(Boolean).join("\n");
       box.append(row);
     });
   });
