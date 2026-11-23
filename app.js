@@ -32,9 +32,9 @@ const PERIODS = [["all", "all time"], ["fy", "this year"], ["3m", "last 3 months
 const FX_FALLBACK = { GBPEUR: 1.17, USDEUR: 0.92, EURGBP: 0.855, USDGBP: 0.78 };
 const TX_CLEAR = { text: "", entity: "", entities: null, category: "", account: "", group: "", only: null, from: "", to: "" };
 const txFilter = Object.assign({}, TX_CLEAR);
-const COLS_KEY = "ca-finance-columns";
-const TX_OPTIONAL = ["account", "entity", "reference", "amount"];
-const txHidden = new Set((() => { try { return JSON.parse(localStorage.getItem(COLS_KEY)) || null; } catch { return null; } })() || TX_OPTIONAL);
+const COLS_KEY = "ca-finance-columns-2";
+const TX_OPTIONAL = ["account", "entity", "reference", "amount"], TX_DEFAULT_OFF = ["account", "entity", "amount"];
+const txHidden = new Set((() => { try { return JSON.parse(localStorage.getItem(COLS_KEY)) || null; } catch { return null; } })() || TX_DEFAULT_OFF);
 
 /* ---------- google sign-in ---------- */
 function loadScript(src) {
@@ -1311,15 +1311,17 @@ function renderTransactions(tab, c0, cols) {
 
   // the columns: the optional ones are switched on and off from the columns menu, remembered between visits
   const ALL = [["date", c.date, "date"], ["account", c.account, "pick"], ["entity", c.entity, "pick"], ["merchant", c.merchant, "text"], ["reference", c.reference, "text"], ["amount", c.amount, "amt"], ["usd", -1, "num"], ["balance", -2, "num"], ["receipt", c.receipt, "receipt"], ["category", c.category, "cat"]];
-  const colBtn = el("button", "box cols", "columns"); colBtn.type = "button";
-  const menu = el("div", "colmenu"); menu.hidden = true;
-  TX_OPTIONAL.forEach(n => {
-    const lab = el("label"), cb = el("input"); cb.type = "checkbox"; cb.checked = !txHidden.has(n);
+  const colBtn = el("button", "box cols"); colBtn.type = "button"; colBtn.title = "columns"; colBtn.setAttribute("aria-label", "columns");
+  colBtn.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="3.5" width="15" height="13"/><line x1="7.5" y1="3.5" x2="7.5" y2="16.5"/><line x1="12.5" y1="3.5" x2="12.5" y2="16.5"/></svg>';
+  const menu = el("div", "colmenu"); menu.hidden = true; menu.append(el("i", "hd", "columns"));
+  // every column is listed; the ones the table needs are ticked and greyed out, like shopify
+  ALL.forEach(([n]) => {
+    const optional = TX_OPTIONAL.includes(n), lab = el("label", optional ? null : "fixed"), cb = el("input"); cb.type = "checkbox"; cb.checked = !txHidden.has(n); cb.disabled = !optional;
     cb.onchange = () => { cb.checked ? txHidden.delete(n) : txHidden.add(n); try { localStorage.setItem(COLS_KEY, JSON.stringify([...txHidden])); } catch {} draw(); };
     lab.append(cb, " " + (n === "amount" ? "original amount" : n)); menu.append(lab);
   });
-  colBtn.onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; };
-  document.addEventListener("click", e => { if (!menu.contains(e.target) && e.target !== colBtn) menu.hidden = true; });
+  colBtn.onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; colBtn.setAttribute("aria-expanded", !menu.hidden); };
+  document.addEventListener("click", e => { if (!menu.contains(e.target) && !colBtn.contains(e.target)) { menu.hidden = true; colBtn.setAttribute("aria-expanded", false); } });
   const colWrap = el("span", "colwrap"); colWrap.append(colBtn, menu); head.append(colWrap);
   head.prepend(count); head.classList.add("tx-head");
   const fmt2 = v => (v < 0 ? "-" : "") + Math.abs(v).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
