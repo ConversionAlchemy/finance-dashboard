@@ -10,7 +10,6 @@ const FILE_KEY = "ca-finance-file";
 const VIEW_KEY = "ca-finance-view";
 const SKIP_TABS = ["dashboard"];          // the sheet's own dashboard tab; this app's dashboard replaces it
 const HIDE_TABS = ["tasks"];             // loaded for needs attention, not shown as a tab
-const FEE_CATS = ["payment fees", "transfer fees", "bank fees"];
 const WRONG_ACCOUNT = ["director's loan", "business costs paid personally"];
 const SYMBOL = { GBP: "£", EUR: "€", USD: "$" };
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
@@ -351,7 +350,6 @@ const streamOf = r => r.stream || (dash.scope === "personal" ? r.category : "oth
 /* ---------- svg ---------- */
 const F = 'font-size="14" font-family="PT Sans, Arial, sans-serif" fill="#26241f"';
 const GREEN = "#00C601", RED = "#FF5429", GTEXT = "#079a10", RTEXT = "#e0431c";
-const PASTEL = ["#f6c9b5", "#f2bcd5", "#bccbec", "#cfe3d4", "#e4d4f2", "#f3e3a6", "#e6e1d6"];
 function svgBox(host, H, inner) {
   const W = Math.max(280, host.clientWidth || 600);
   host.innerHTML = '<svg viewBox="0 0 ' + W + " " + H + '" width="' + W + '" height="' + H + '">' + inner(W) + "</svg>";
@@ -416,9 +414,6 @@ function renderDashboard() {
   $("#pdfButton").hidden = personal;
 
   const rg = range();
-  $("#rangeLabel").textContent = longDate(rg.from) + " – " + longDate(rg.to);
-  const fyl = (fys.find(f => f.start === dash.fy) || {}).label || "";
-  $("#periodLabel").textContent = dash.month ? MONTHS[+dash.month.slice(5) - 1] + " " + dash.month.slice(0, 4) : fyl + (dash.q ? " · q" + dash.q : "");
   document.querySelectorAll(".step .prev").forEach(b => { b.disabled = !nextPeriod(-1, fys); b.onclick = () => stepPeriod(-1); });
   document.querySelectorAll(".step .next").forEach(b => { b.disabled = !nextPeriod(1, fys); b.onclick = () => stepPeriod(1); });
   renderSummary(rg);
@@ -440,9 +435,7 @@ function renderSummary(rg) {
   ];
   if (!personal) cols.push(["tax due (estimate)", f.tax, "r", f.taxPaid > 0.5 ? money(f.taxPaid) + " paid" : "nothing paid yet"]);
   cols.push(["cash", f.cash, f.cash < 0 ? "r" : "g", change(f.cash, p.cash)]);
-  const t = el("table", "sum"), a = el("tr"), b = el("tr"), c = el("tr");
-  cols.forEach(([label, v, cls, note]) => { const x = el("td"); x.append(el("i", null, label)); a.append(x); b.append(el("td", cls, money(v))); c.append(el("td", null, note)); });
-  t.append(a, b, c); $("#summary").replaceChildren(t);
+  $("#summary").replaceChildren(...cols.map(([label, v, cls, note]) => { const d = el("div", "fig"); d.append(el("i", null, label), el("span", cls, money(v)), el("span", null, note)); return d; }));
 }
 
 function renderMonthChart(rg) {
@@ -465,8 +458,8 @@ function renderMonthChart(rg) {
       const x = L + k * slot + slot * 0.14, bw = slot * 0.34, on = d.m >= rg.from.slice(0, 7) && d.m <= rg.to.slice(0, 7);
       s += '<g opacity="' + (on ? 1 : 0.3) + '"><rect x="' + x + '" y="' + y(d.inc) + '" width="' + bw + '" height="' + (base - y(d.inc)) + '" fill="' + GREEN + '"/>'
         + '<rect x="' + (x + bw + 2) + '" y="' + y(d.cost) + '" width="' + bw + '" height="' + (base - y(d.cost)) + '" fill="' + RED + '"/></g>'
-        + '<text x="' + x + '" y="' + (base + 20) + '" ' + F + ">" + d.label + "</text>";
-      if (d.started && (d.inc || d.cost)) { const n = d.inc - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" fill="' + (n < 0 ? RTEXT : GTEXT) + '">' + (n < 0 ? "" : "+") + short(n) + "</text>"; }
+        + '<text x="' + x + '" y="' + (base + 20) + '" ' + F + ">" + (slot < 44 ? d.label[0] : d.label) + "</text>";
+      if (slot >= 44 && d.started && (d.inc || d.cost)) { const n = d.inc - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" fill="' + (n < 0 ? RTEXT : GTEXT) + '">' + (n < 0 ? "" : "+") + short(n) + "</text>"; }
       s += '<rect class="hit" x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="245" fill="transparent" data-month="' + d.m + '" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|revenue " + money(d.inc) + "|costs " + money(d.cost) + "|" + (d.inc - d.cost < 0 ? "loss " : "profit ") + money(Math.abs(d.inc - d.cost))) + '"/>';
     });
     // filing targets sit on the chart's own baseline, as dots at their dates
@@ -479,6 +472,7 @@ function renderMonthChart(rg) {
     const later = dated.filter(g => g.when > fyEnd), n = later.reduce((a, g) => a + g.items.length, 0);
     lg.insertAdjacentHTML("beforeend", '<span><span class="dot"></span>filing target</span>' + (n ? '<span data-tip="' + esc(later.map(g => g.tip).join("| |")) + '">→ ' + n + " after " + esc(longDate(fyEnd)) + "</span>" : ""));
   }
+  lg.insertAdjacentHTML("beforeend", '<span class="range">' + esc(longDate(rg.from) + " – " + longDate(rg.to)) + "</span>");
   host.append(lg);
   host.querySelectorAll(".hit").forEach(b => b.addEventListener("click", () => { dash.month = dash.month === b.dataset.month ? null : b.dataset.month; renderDashboard(); }));
 }
@@ -670,8 +664,6 @@ function attentionItems() {
   const rg = range(), cos = scopeEntities().filter(e => e !== "personal");
   const wrong = sel(rg, r => WRONG_ACCOUNT.includes(r.category)).length;
   const noReceipt = sel(rg, r => isCost(r) && !r.receipt, cos).length;
-  let due = 0; const fl = data.filings;
-  if (fl) fl.display.forEach(r => (r || []).forEach(v => { if (["to do", "confirm"].includes(lc(v))) due++; }));
   return [
     { n: check, text: (check === 1 ? "transaction" : "transactions") + " to categorise", urgent: true, go: () => goTransactions({ category: "check", from: "", to: "" }) },
     { n: wrong, text: (wrong === 1 ? "cost" : "costs") + " paid from the wrong account", go: () => goTransactions({ only: "wrong" }) },
@@ -809,34 +801,40 @@ function renderSheet(tab) {
   const head = $("#sheetHead"), grid = $("#grid"); head.innerHTML = ""; grid.innerHTML = ""; $("#more").innerHTML = "";
   if (more) { more.disconnect(); more = null; }
   if (!tab) return;
-  const isTx = tab.name.toLowerCase() === "transactions", isTasks = tab.name.toLowerCase() === "tasks";
   const size = usedSize(tab), c0 = firstUsedCol(tab);
-  if (isTx && data.head >= 0) return renderTransactions(tab, c0, size.cols);
+  if (tab.name.toLowerCase() === "transactions" && data.head >= 0) return renderTransactions(tab, c0, size.cols);
+  grid.className = "grid sheet";
   const body = el("tbody");
   for (let i = 0; i <= size.rows; i++) {
-    const tr = el("tr");
-    for (let j = c0; j < size.cols; j++) tr.append(cell(tab, i, j, { tasks: isTasks }));
+    const tr = el("tr"), kind = rowKind(tab, i, c0, size.cols);
+    if (kind) tr.className = kind;
+    for (let j = c0; j < size.cols; j++) tr.append(cell(tab, i, j, { kind }));
     body.append(tr);
   }
   grid.append(body);
 }
+// the sheet's bold is read as the dashboard's hierarchy: a lone bold cell is a section title, a row of bold cells is a header of labels
+function rowKind(tab, i, c0, cols) {
+  const vals = [], f = tab.fmt[i] || [];
+  for (let j = c0; j < cols; j++) { const v = (tab.display[i] || [])[j]; if (v !== "" && v != null) vals.push(j); }
+  if (!vals.length) return "blank";
+  const bold = vals.filter(j => (f[j] || {}).b);
+  if (bold.length && bold.length === vals.length) return vals.some((j, k) => k && vals[k - 1] === j - 1) ? "labels" : "title";
+  return "";
+}
+const NUMERIC = /^[(−-]?[£€$]?[\d,]+(\.\d+)?%?\)?$/;
 function cell(tab, i, j, o = {}) {
   const td = el("td");
   const raw = ((tab.raw[i] || [])[j]); const disp = ((tab.display[i] || [])[j]);
   const f = (tab.fmt[i] || [])[j] || {};
   const isFormula = typeof raw === "string" && raw.startsWith("=");
-  if (f.b) td.classList.add("b"); if (f.i) td.classList.add("i"); if (f.s) td.classList.add("s"); if (f.y) td.classList.add("y"); if (f.line) td.classList.add("line");
-  if (o.right) td.classList.add("r");
+  if (f.i) td.classList.add("i"); if (f.s) td.classList.add("s"); if (f.y) td.classList.add("y");
+  const txt = disp == null ? "" : String(disp);
+  if (o.right || (!o.kind && NUMERIC.test(txt.trim()) && !/^\d{4}$/.test(txt.trim()))) { td.classList.add("num"); if (/^[(−-]/.test(txt.trim())) td.classList.add("neg"); else if (o.colour && num(txt) > 0) td.classList.add("pos"); }
   const link = isFormula && /^=HYPERLINK\(\s*"([^"]+)"/i.exec(raw);
   if (link && /^https:\/\//.test(link[1])) { const a = el("a", null, disp || "link"); a.href = link[1]; a.target = "_blank"; a.rel = "noopener"; td.append(a); return td; }
   td.textContent = disp == null ? "" : disp;
   if (isFormula) { td.classList.add("formula"); return td; }
-  if (o.tasks && lc(disp) && !f.b) {
-    td.classList.add("task", "edit");
-    td.addEventListener("click", e => { if (e.detail > 1) return; setTimeout(() => { if (td.dataset.editing) return; const on = !td.classList.contains("s"); td.classList.toggle("s", on); setStrike(tab, i, j, on); }, 220); });
-    td.addEventListener("dblclick", () => edit(td, tab, i, j));
-    return td;
-  }
   td.classList.add("edit");
   td.addEventListener("click", () => edit(td, tab, i, j));
   return td;
@@ -861,40 +859,42 @@ function rerenderCellRow(tab) {
 
 function renderTransactions(tab, c0, cols) {
   const head = $("#sheetHead"), grid = $("#grid"), c = data.cols;
-  const search = el("input"); search.type = "search"; search.placeholder = "search"; search.value = txFilter.text;
-  const mk = (label, values, key) => { const s = el("select"); s.append(new Option(label, "")); values.forEach(v => s.append(new Option(v, v))); s.value = txFilter[key] || ""; s.onchange = () => { txFilter[key] = s.value; if (key === "entity") txFilter.entities = null; draw(); }; return s; };
+  grid.className = "grid tx";
+  const search = el("input", "box"); search.type = "search"; search.placeholder = "search"; search.value = txFilter.text;
+  const mk = (label, values, key) => { const s = el("select", "box"); s.append(new Option(label, "")); values.forEach(v => s.append(new Option(v, v))); s.value = txFilter[key] || ""; s.onchange = () => { txFilter[key] = s.value; if (key === "entity") txFilter.entities = null; draw(); }; return s; };
   const entities = [...new Set(data.rows.map(r => r.entity))].sort(), accounts = [...new Set(data.rows.map(r => r.account))].sort();
   const cats = [...new Set(data.cats.concat(data.rows.map(r => r.category)))].filter(Boolean).sort();
   const count = el("span", "count");
   head.append(search, mk("all entities", entities, "entity"), mk("all accounts", accounts, "account"), mk("all categories", cats, "category"));
-  if (txFilter.only) { const b = el("button", "chip", txFilter.only === "wrong" ? "paid from the wrong account" : "no receipt"); b.type = "button"; b.onclick = () => { txFilter.only = null; renderSheet(tab); }; head.append(b); }
-  if (txFilter.group) { const b = el("button", "chip", "all " + txFilter.group + "s"); b.type = "button"; b.onclick = () => { txFilter.group = ""; renderSheet(tab); }; head.append(b); }
-  if (txFilter.from) { const b = el("button", "chip", txFilter.from + " to " + txFilter.to); b.type = "button"; b.onclick = () => { txFilter.from = txFilter.to = ""; renderSheet(tab); }; head.append(b); }
+  if (txFilter.only) { const b = el("button", "box chip", txFilter.only === "wrong" ? "paid from the wrong account" : "no receipt"); b.type = "button"; b.onclick = () => { txFilter.only = null; renderSheet(tab); }; head.append(b); }
+  if (txFilter.group) { const b = el("button", "box chip", "all " + txFilter.group + "s"); b.type = "button"; b.onclick = () => { txFilter.group = ""; renderSheet(tab); }; head.append(b); }
+  if (txFilter.from) { const b = el("button", "box chip", longDate(txFilter.from) + " – " + longDate(txFilter.to)); b.type = "button"; b.onclick = () => { txFilter.from = txFilter.to = ""; renderSheet(tab); }; head.append(b); }
   head.append(count);
   let t; search.oninput = () => { clearTimeout(t); t = setTimeout(() => { txFilter.text = search.value; draw(); }, 150); };
 
   const hdr = tab.display[data.head] || [];
   function draw() {
     grid.innerHTML = ""; $("#more").innerHTML = ""; if (more) more.disconnect();
-    const thead = el("thead"), tr = el("tr"); for (let j = c0; j < cols; j++) tr.append(el("th", null, hdr[j] || "")); thead.append(tr); grid.append(thead);
+    const shownCols = []; for (let j = c0; j < cols; j++) if (j !== c.group) shownCols.push(j);
+    const thead = el("thead"), tr = el("tr"); shownCols.forEach(j => tr.append(el("th", j === c.amount || j === c["reporting amount"] ? "num" : null, hdr[j] || ""))); thead.append(tr); grid.append(thead);
     const q = lc(txFilter.text);
     const list = data.rows.filter(r => (!txFilter.from || (r.date >= txFilter.from && r.date <= txFilter.to)) && (!txFilter.entities || txFilter.entities.includes(r.entity)) && (!txFilter.entity || r.entity === txFilter.entity) && (!txFilter.account || r.account === txFilter.account)
       && (!txFilter.category || r.category === txFilter.category) && (!txFilter.group || r.group === txFilter.group)
       && (txFilter.only !== "wrong" || WRONG_ACCOUNT.includes(r.category)) && (txFilter.only !== "receipt" || (r.group === "cost" && !r.receipt))
       && (!q || (r.merchant + " " + lc((tab.display[r.i] || [])[c.reference]) + " " + r.category + " " + r.date).includes(q))).reverse();
-    count.textContent = list.length.toLocaleString("en-GB") + " rows";
+    count.textContent = list.length.toLocaleString("en-GB") + (list.length === 1 ? " transaction" : " transactions");
     const body = el("tbody"); grid.append(body);
     let shown = 0;
     const page = () => {
       const frag = document.createDocumentFragment();
       list.slice(shown, shown + 300).forEach(r => {
         const row = el("tr");
-        for (let j = c0; j < cols; j++) {
+        for (const j of shownCols) {
           if (j === c.category) {
             const td = el("td"); const s = el("select", "cat"); cats.forEach(v => s.append(new Option(v, v))); s.value = r.category;
             s.onchange = () => { writeCell(tab, r.i, j, s.value).then(() => { buildModel(); }); };
             td.append(s); row.append(td);
-          } else row.append(cell(tab, r.i, j, { right: j === c.amount || j === c["reporting amount"] }));
+          } else row.append(cell(tab, r.i, j, { right: j === c.amount || j === c["reporting amount"], colour: true, kind: "data" }));
         }
         frag.append(row);
       });
