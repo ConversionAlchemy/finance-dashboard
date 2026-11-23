@@ -494,6 +494,7 @@ function chartWindow() {
   if (dash.period === "fy") return { start: new Date(dash.fy + "T00:00:00"), n: 12 };
   return { start: addMonths(thisMonth, -12), n: 12 };
 }
+let subGroups = {};
 function renderMonthChart(rg) {
   const host = $("#monthChart"); host.className = "chart";
   const today = iso(new Date()), win = chartWindow(), start = win.start, N = win.n;
@@ -508,7 +509,7 @@ function renderMonthChart(rg) {
   host.replaceChildren(chart);
   const fyStart = iso(start), fyEnd = iso(monthEnd(addMonths(start, N - 1))), fyStartMonth = scopeYe() % 12;
   const dated = upcomingFilings();
-  const laterGroups = dated.filter(g => g.when > fyEnd), padR = laterGroups.length ? 28 : 0;
+  const laterGroups = dated.filter(g => g.when > fyEnd), padR = 12;
   svgBox(chart, 250, Wd => {
     const L = 40, base = 190, y = v => base - v / max * 180, slot = (Wd - L - padR) / N, many = N > 18; let s = "";
     [0, 0.25, 0.5, 0.75, 1].forEach(t => { const v = max * t; s += '<line x1="' + L + '" x2="' + (Wd - padR) + '" y1="' + y(v) + '" y2="' + y(v) + '" style="stroke:' + (t ? "var(--grid)" : "currentColor") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (t ? short(v) : "0") + "</text>"; });
@@ -525,16 +526,21 @@ function renderMonthChart(rg) {
     });
     // your monthly spending budget as a dashed line across the chart
     if (bud) s += '<line x1="' + L + '" x2="' + (Wd - padR) + '" y1="' + y(bud.spend) + '" y2="' + y(bud.spend) + '" style="stroke:var(--rtext)" stroke-dasharray="5 4" stroke-width="1.5"/>';
-    // submissions: a line up from the baseline with a ball on top; the ones after this period gather in a numbered ball at the edge
-    const xd = dstr => { const d = new Date(dstr + "T00:00:00"), k = (d.getFullYear() - start.getFullYear()) * 12 + d.getMonth() - start.getMonth(); return L + (k + (d.getDate() - 1) / monthEnd(d).getDate()) * slot; };
+    // submissions: a dotted line with a numbered ball on top, at the start of the month they're due in;
+    // anything after this period gathers at the very end of the axis. every ball is the same size
     const tipText = gs => gs.map(g => g.tip.split("|").filter(Boolean).join("\n")).join("\n\n");
-    dated.filter(g => g.when >= fyStart && g.when <= fyEnd).forEach(g => {
-      const xx = xd(g.when);
-      s += '<line x1="' + xx + '" x2="' + xx + '" y1="14" y2="' + base + '" stroke="currentColor" stroke-width="1.5" pointer-events="none"/>'
-        + '<circle class="sub" cx="' + xx + '" cy="10" r="6" fill="' + (g.soon ? "#ffff00" : "currentColor") + '" stroke="currentColor"><title>' + esc(tipText([g])) + "</title></circle>";
-    });
-    const later = laterGroups, nLater = later.reduce((a, g) => a + g.items.length, 0);
-    if (nLater) s += '<g class="later hit" data-after="' + fyEnd + '"><title>' + esc(tipText(later)) + '</title><circle cx="' + (Wd - 11) + '" cy="11" r="10" style="fill:var(--card)" stroke="currentColor" stroke-width="1.5"/><text x="' + (Wd - 11) + '" y="15.5" font-size="12" text-anchor="middle" font-family="PT Sans, Arial, sans-serif" fill="currentColor">' + nLater + "</text></g>";
+    const marker = (x, gs, key) => {
+      const n = gs.reduce((a, g) => a + g.items.length, 0);
+      return '<g class="sub hit" data-key="' + key + '"><title>' + esc(tipText(gs)) + '</title>'
+        + '<line x1="' + x + '" x2="' + x + '" y1="21" y2="' + base + '" stroke="currentColor" stroke-dasharray="2 3" pointer-events="none"/>'
+        + '<circle cx="' + x + '" cy="11" r="10" style="fill:var(--card)" stroke="currentColor" stroke-width="1.5"/>'
+        + '<text x="' + x + '" y="15.5" font-size="12" text-anchor="middle" font-family="PT Sans, Arial, sans-serif" fill="currentColor" pointer-events="none">' + n + "</text></g>";
+    };
+    const byMonth = new Map();
+    dated.filter(g => g.when >= fyStart && g.when <= fyEnd).forEach(g => { const m = g.when.slice(0, 7); byMonth.set(m, (byMonth.get(m) || []).concat([g])); });
+    subGroups = {};
+    byMonth.forEach((gs, m) => { const k = (+m.slice(0, 4) - start.getFullYear()) * 12 + (+m.slice(5) - 1) - start.getMonth(); subGroups[m] = gs; s += marker(L + k * slot, gs, m); });
+    if (laterGroups.length) { subGroups.later = laterGroups; s += marker(L + N * slot, laterGroups, "later"); }
     return s;
   });
   const lg = el("div", "legend"); lg.innerHTML = '<span><span class="sw" style="background:' + GREEN + '"></span>' + words().rev + '</span><span><span class="sw" style="background:' + RED + '"></span>' + words().cost + "</span>";
@@ -544,7 +550,12 @@ function renderMonthChart(rg) {
   }
   lg.insertAdjacentHTML("beforeend", '<span class="range">' + esc(longDate(rg.from) + " – " + longDate(rg.to)) + "</span>");
   host.append(lg);
-  host.querySelectorAll(".later").forEach(g => g.addEventListener("click", e => { e.stopPropagation(); dash.filingsAfter = g.dataset.after; renderFilings(); }));
+  host.querySelectorAll("g.sub").forEach(g => g.addEventListener("click", e => {
+    e.stopPropagation();
+    const k = g.dataset.key, gs = subGroups[k] || [];
+    dash.filingsPick = { label: k === "later" ? "after " + longDate(fyEnd) : MONTHS[+k.slice(5) - 1] + " " + k.slice(0, 4), names: gs.flatMap(x => x.items.map(i => i.name)) };
+    renderFilings();
+  }));
   host.querySelectorAll("rect.hit").forEach(b => b.addEventListener("click", () => { dash.month = dash.month === b.dataset.month ? null : b.dataset.month; renderDashboard(); }));
 }
 
@@ -712,10 +723,10 @@ function upcomingFilings() {
 // statuses are changed in the sheet, not here. clicking a filing opens its row on the filings tab
 function submitText(f, today = iso(new Date())) { const d = f.target || f.deadline; return !d ? "" : d < today ? "submit now" : "submit " + longDate(d); }
 function renderFilings() {
-  const box = $("#filingsBox"), fl = data.filings, today = iso(new Date()), ents = scopeEntities(), after = dash.filingsAfter;
+  const box = $("#filingsBox"), fl = data.filings, today = iso(new Date()), ents = scopeEntities(), pick = dash.filingsPick;
   box.replaceChildren(el("b", "hd", "filings"));
-  if (after) { const chip = el("button", "box chip", "after " + longDate(after)); chip.type = "button"; chip.onclick = () => { dash.filingsAfter = null; renderFilings(); }; box.append(chip); }
-  const items = filingDates().filter(f => ents.includes(f.who) && f.status !== "done" && (!after || (f.target || f.deadline) > after));
+  if (pick) { const chip = el("button", "box chip", pick.label); chip.type = "button"; chip.onclick = () => { dash.filingsPick = null; renderFilings(); }; box.append(chip); }
+  const items = filingDates().filter(f => ents.includes(f.who) && f.status !== "done" && (!pick || pick.names.includes(f.name)));
   const groupOf = f => f.status === "filed, to confirm" ? ["filed, to confirm", "3"] : (f.target || f.deadline) ? [submitText(f, today), (f.target || f.deadline) < today ? "0" : "1" + (f.target || f.deadline)] : f.status === "to do" ? ["to do", "2a"] : ["coming up", "2b"];
   const groups = new Map();
   items.forEach(f => { const [label, order] = groupOf(f); const g = groups.get(label) || { label, order, items: [] }; g.items.push(f); groups.set(label, g); });
