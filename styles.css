@@ -237,7 +237,19 @@ input.inline { width: 110px; height: 24px; padding: 0 4px; border: 0; outline: 2
 .grid tr.flash td { background: var(--yellow) !important; color: #1a1917; }
 
 /* transactions */
-.grid.tx { width: 100%; }
+.grid.tx { width: 100%; table-layout: fixed; }
+.grid.tx .c-date { width: 104px; }
+.grid.tx .c-account { width: 130px; }
+.grid.tx .c-entity { width: 80px; }
+.grid.tx .c-merchant { width: 230px; }
+.grid.tx .c-reference { width: 240px; }
+.grid.tx .c-amount { width: 120px; }
+.grid.tx .c-usd { width: 110px; }
+.grid.tx .c-balance { width: 120px; }
+.grid.tx .c-receipt { width: 96px; padding-left: 18px; }
+.grid.tx td.c-merchant, .grid.tx td.c-reference, .grid.tx td.c-account, .grid.tx td.c-entity { overflow: hidden; text-overflow: ellipsis; }
+.grid.tx td.c-category select.cat.tag { width: 170px; max-width: 170px; field-sizing: fixed; text-overflow: ellipsis; }
+.grid.tx td.c-account select, .grid.tx td.c-entity select { width: 100%; field-sizing: fixed; }
 .grid.tx td, .grid.tx th { padding-right: 18px; }
 .grid.tx td select { field-sizing: content; }
 .grid.tx td:last-child, .grid.tx th:last-child { padding-right: 0; }
@@ -245,22 +257,25 @@ input.inline { width: 110px; height: 24px; padding: 0 4px; border: 0; outline: 2
 .grid.tx tr.sep td { position: sticky; z-index: 1; height: auto; border-bottom: 0; background: var(--card) !important; }
 .grid.tx tr.sep.year td { top: var(--th-h, 41px); padding-top: 12px; padding-bottom: 4px; }
 .grid.tx tr.sep.month td { top: calc(var(--th-h, 41px) + var(--yr-h, 38px)); padding-top: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--hair); }
-.grid.tx tr.sep .part { margin-left: 28px; }
+.grid.tx tr.sep .part { margin-left: 24px; }
+.grid.tx tr.sep td.start { padding-left: 18px; }
+.grid.tx tr.sep td { overflow: hidden; text-overflow: ellipsis; }
 .grid.tx tr.sep.month > td:first-child > i:first-child { display: inline-block; min-width: 3em; }
 .grid.tx tr.sep.year > td:first-child > b { display: inline-block; min-width: 3em; }
 /* folded columns: click a heading to narrow it, click again to open it */
 .grid.tx th.fold { cursor: pointer; }
 .grid.tx th.fold:hover { color: var(--grey); }
-.grid.tx th.x, .grid.tx td.x { max-width: 64px; overflow: hidden; color: var(--grey); }
-.grid.tx th.x { color: var(--grey); }
+/* a folded column is a thin strip; its heading shows dots and opens it again */
+.grid.tx th.x, .grid.tx td.x { width: 18px; min-width: 18px; max-width: 18px; padding: 0 !important; overflow: hidden; text-align: center; color: var(--grey); }
+.grid.tx td.x { border-left: 1px dotted var(--hair); }
+.grid.tx th.x { padding-top: 10px !important; }
 .grid select.cat { max-width: 100%; }
 .grid td select.cat.tag { padding: 0 6px; background: hsl(var(--h) 70% 92%); color: #26241f; }
 html.dark .grid td select.cat.tag { background: hsl(var(--h) 22% 22%); color: var(--ink); }
-.grid td.receipt { min-width: 120px; }
-.grid td.receipt.need { background: rgba(255, 255, 0, 0.22); }
-html.dark .grid td.receipt.need { background: rgba(255, 255, 0, 0.12); }
-.grid tbody tr:hover td.receipt.need { background: rgba(255, 255, 0, 0.3); }
-.grid.tx td.clip { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.grid.tx tr.need td:not(.c-category) { background: rgba(255, 255, 0, 0.16); }
+html.dark .grid.tx tr.need td:not(.c-category) { background: rgba(255, 255, 0, 0.07); }
+.grid.tx tbody tr.need:hover td:not(.c-category) { background: rgba(255, 255, 0, 0.28); }
+
 
 /* plan against actual */
 table.plan { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }

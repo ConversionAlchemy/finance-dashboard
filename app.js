@@ -1274,15 +1274,17 @@ function renderTransactions(tab, c0, cols) {
 
   // what each column is, in the order shown. stream, group and the book-currency amount stay in the sheet but not here.
   // the amount carries its own currency symbol; usd is that amount converted; balance runs across what's in scope
-  const colsShown = [["date", c.date], ["account", c.account, "pick"], ["entity", c.entity, "pick"], ["merchant", c.merchant], ["reference", c.reference], ["amount", c.amount, "amt"], ["usd", -1, "num"], ["balance", -2, "num"], ["category", c.category, "cat"], ["receipt", c.receipt, "receipt"]];
+  const colsShown = [["date", c.date], ["account", c.account, "pick"], ["entity", c.entity, "pick"], ["merchant", c.merchant], ["reference", c.reference], ["amount", c.amount, "amt"], ["usd", -1, "num"], ["balance", -2, "num"], ["receipt", c.receipt, "receipt"], ["category", c.category, "cat"]];
   const fmt2 = v => (v < 0 ? "-" : "") + Math.abs(v).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   function draw() {
     const keepTop = $("#sheetScroll").scrollTop;
     grid.innerHTML = ""; $("#more").innerHTML = ""; if (more) more.disconnect();
     const thead = el("thead"), tr = el("tr");
     colsShown.forEach(([name, , kind]) => {
-      const th = el("th", (kind === "num" || kind === "amt" ? "num " : "") + "fold" + (txFolded.has(name) ? " x" : ""), txFolded.has(name) && FOLD_HEAD[name] ? FOLD_HEAD[name] : name); th.title = name;
-      th.onclick = () => { txFolded.has(name) ? txFolded.delete(name) : txFolded.add(name); try { localStorage.setItem(FOLD_KEY, JSON.stringify([...txFolded])); } catch {} draw(); $("#sheetScroll").scrollTop = keepTop; };
+      const folded = txFolded.has(name) && FOLD_SHORT[name];
+      const th = el("th", "c-" + name + " " + (kind === "num" || kind === "amt" ? "num " : "") + (FOLD_SHORT[name] ? "fold" : "") + (folded ? " x" : ""), folded ? "⋯" : name); th.title = name;
+      if (!FOLD_SHORT[name]) th.onclick = null;
+      if (FOLD_SHORT[name]) th.onclick = () => { txFolded.has(name) ? txFolded.delete(name) : txFolded.add(name); try { localStorage.setItem(FOLD_KEY, JSON.stringify([...txFolded])); } catch {} draw(); $("#sheetScroll").scrollTop = keepTop; };
       tr.append(th);
     });
     thead.append(tr); grid.append(thead);
@@ -1302,8 +1304,8 @@ function renderTransactions(tab, c0, cols) {
       const name = cls === "year" ? el("b", null, label) : el("i", null, label);
       const part = (l, v, c) => { const sp = el("span", "part"); sp.append(el("i", null, l), " ", el("span", c, v)); return sp; };
       lab.append(name, part("income", money(t.inc), t.inc ? "g" : null), part("costs", money(t.cost), t.cost ? "r" : null));
-      if (t.start != null) lab.append(part("started on", money(t.start)));
-      const net = el("td", "num " + (t.net < 0 ? "neg" : "pos"), fmt2(t.net)), end = el("td", "num", t.end == null ? "" : fmt2(t.end)), rest = el("td"); rest.colSpan = colsShown.length - iUsd - 2;
+      const net = el("td", "num " + (t.net < 0 ? "neg" : "pos"), fmt2(t.net)), end = el("td", "num", t.end == null ? "" : fmt2(t.end)), rest = el("td", "start"); rest.colSpan = colsShown.length - iUsd - 2;
+      if (t.start != null) rest.append(el("i", null, "started on"), " " + money(t.start));
       h.append(lab, net, end, rest); return h;
     };
     const page = () => {
@@ -1356,7 +1358,7 @@ function txRow(tab, r, colsShown, cats, entities, accounts, bal) {
     let td = el("td");
     // a folded column keeps a short form: the bank's first word, ie or uk, the currency symbol, nothing for the reference
     if (txFolded.has(name) && FOLD_SHORT[name]) {
-      td.className = "x"; td.textContent = FOLD_SHORT[name](r, d[j]); td.title = name === "amount" ? (r.amount < 0 ? "-" : "") + (SYMBOL[r.cur] || r.cur + " ") + Math.abs(r.amount).toLocaleString("en-GB", { minimumFractionDigits: 2 }) : d[j] || "";
+      td.className = "x c-" + name; td.title = name === "amount" ? (r.amount < 0 ? "-" : "") + (SYMBOL[r.cur] || r.cur + " ") + Math.abs(r.amount).toLocaleString("en-GB", { minimumFractionDigits: 2 }) : d[j] || "";
       return row.append(td);
     }
     if (kind === "pick" || kind === "cat") {
@@ -1377,9 +1379,10 @@ function txRow(tab, r, colsShown, cats, entities, accounts, bal) {
       const link = receiptLink(raw[j], d[j]);
       td.className = "receipt";
       if (link) { const a = el("a", null, link.label); a.href = link.url; a.target = "_blank"; a.rel = "noopener"; td.append(a); }
-      else { td.textContent = d[j] || ""; td.classList.add("edit"); if (!d[j] && receiptExpected(r)) td.classList.add("need"); td.onclick = () => edit(td, tab, r.i, j); }
+      else { td.textContent = d[j] || ""; td.classList.add("edit"); if (!d[j] && receiptExpected(r)) row.classList.add("need"); td.onclick = () => edit(td, tab, r.i, j); }
     } else { td = cell(tab, r.i, j, { right: kind === "num", colour: true, kind: "data" }); if (name === "merchant" || name === "reference" || name === "account" || name === "entity") { td.classList.add("clip"); td.title = td.textContent; } }
     if (txFolded.has(name)) td.classList.add("x");
+    td.classList.add("c-" + name);
     row.append(td);
   });
   return row;
