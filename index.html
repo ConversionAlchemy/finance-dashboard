@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=PT+Sans:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1795456652">
+  <link rel="stylesheet" href="styles.css?v=1795456928">
 </head>
 <body>
 
@@ -49,20 +49,20 @@
           <button class="box" id="pdfButton" type="button">export</button>
         </div>
         <div class="sec summary"><span></span><div><div id="monthChart"></div><div id="summary"></div></div></div>
-        <div class="sec"><b>revenue and costs</b><div class="split"><div class="pick" id="flowList"></div><div id="flowDetail"></div></div></div>
+        <div class="sec"><b id="flowTitle">revenue and costs</b><div class="split"><div class="pick" id="flowList"></div><div id="flowDetail"></div></div></div>
         <div class="sec"><b>cash</b><div class="split"><div class="pick" id="cashList"></div><div id="cashDetail"></div></div></div>
       </div>
       <aside class="side-col"><div class="side" id="filingsBox"></div><div class="side" id="attention"></div></aside>
     </section>
     <section id="viewForecast" class="view fc" hidden>
       <div class="filters">
-        <b>forecast</b>
+        <b id="fcTitle">forecast</b>
         <label class="box">starts <input type="month" id="fcStart" aria-label="start month"></label>
         <button class="box" id="fcSheet" type="button">sheet</button>
       </div>
       <div class="sec"><b>inputs</b><div class="split"><div id="fcInRev"></div><div id="fcInCost"></div></div></div>
       <div class="sec"><b>next 12 months</b><div><div id="fcChart" class="chart"></div><div id="fcFigs" class="figs"></div></div></div>
-      <div class="sec"><b>by product</b><div class="split"><div class="pick" id="fcProdList"></div><div id="fcProdDetail"></div></div></div>
+      <div class="sec"><b id="fcProdTitle">by product</b><div class="split"><div class="pick" id="fcProdList"></div><div id="fcProdDetail"></div></div></div>
       <div class="sec"><b>plan against actual</b><div id="fcActual"></div></div>
     </section>
     <section id="viewSheet" class="view" hidden>
@@ -79,6 +79,6 @@
   </div>
   <div id="print" class="print"></div>
   <div class="tip" id="tip" hidden></div>
-  <script src="app.js?v=1795456652"></script>
+  <script src="app.js?v=1795456928"></script>
 </body>
 </html>

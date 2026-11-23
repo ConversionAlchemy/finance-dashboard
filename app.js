@@ -238,6 +238,18 @@ function buildModel() {
   const fx = {};
   block(fcRows, ["month", "rate"]).forEach(([k, v]) => { const n = num(v); if (n) fx[String(k).trim()] = n; });
   rows.forEach(r => (r.repCur = r.entity === "uk ltd" ? "GBP" : "EUR"));
+  // as a director, your income is what the companies pay you: salary and dividends come from their books,
+  // so the same money landing in a personal account is a transfer, and company costs you paid are owed back, not spending
+  rows.forEach(r => {
+    if (r.entity !== "personal") return;
+    if (r.group === "income" && r.merchant.includes("conversion alchemy")) r.group = "transfer";
+    if (r.category === "business costs paid personally") r.group = "owed";
+  });
+  rows.filter(r => r.entity !== "personal" && (r.category === "director pay" || r.category === "dividends")).forEach(r => {
+    rows.push(Object.assign({}, r, { entity: "personal", synthetic: true, account: r.entity === "uk ltd" ? "from the uk company" : "from the irish company",
+      category: r.category === "director pay" ? "salary" : "dividends", group: "income", stream: "", amount: -r.amount, rep: -r.rep }));
+  });
+  rows.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
   const tasks = tabByName("tasks"); const filings = tabByName("filings");
   data = { rows, cols, head, catGroup, cats: Object.keys(catGroup), ent, tasks, filings, fx, fxCache: {} };
   applyCurrency();
@@ -263,7 +275,7 @@ function applyCurrency() { data.rows.forEach(r => (r.v = r.rep * rate(r.date.sli
 // a balance on a date, from each row's own currency, at that date's rate
 function balance(to, fn, ents = scopeEntities()) {
   const byCur = {};
-  data.rows.forEach(r => { if (ents.includes(r.entity) && r.date <= to && (!fn || fn(r))) byCur[r.cur] = (byCur[r.cur] || 0) + r.amount; });
+  data.rows.forEach(r => { if (!r.synthetic && ents.includes(r.entity) && r.date <= to && (!fn || fn(r))) byCur[r.cur] = (byCur[r.cur] || 0) + r.amount; });
   const now = iso(new Date()); const m = (to > now ? now : to).slice(0, 7);
   return Object.entries(byCur).reduce((a, [c, v]) => a + v * rate(m, c || "EUR", dash.cur), 0);
 }
@@ -351,12 +363,15 @@ function groupBy(rows, key) {
   const m = new Map(); rows.forEach(r => { const k = typeof key === "function" ? key(r) : r[key]; m.set(k, (m.get(k) || 0) + r.v); });
   return [...m.entries()].map(([label, v]) => ({ label, v })).sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
 }
-const catName = c => c === "check" ? "to categorise" : c;
-const streamOf = r => r.stream || (dash.scope === "personal" ? r.category : "other");
+const catName = c => c === "check" ? "to categorise" : c === "income" && dash.scope === "personal" ? "other income" : c;
+const words = () => dash.scope === "personal"
+  ? { rev: "income", cost: "spending", allRev: "all income", allCost: "all spending", keep: "saved", stream: "source", box: "income and spending", pbt: "saved", of: "of income" }
+  : { rev: "revenue", cost: "costs", allRev: "all revenue", allCost: "all costs", keep: "profit", stream: "stream", box: "revenue and costs", pbt: "profit before tax", of: "of revenue" };
+const streamOf = r => r.stream || (dash.scope === "personal" ? catName(r.category) : "other");
 
 /* ---------- svg ---------- */
-const F = 'font-size="14" font-family="PT Sans, Arial, sans-serif" fill="#26241f"';
-const GREEN = "#00C601", RED = "#FF5429", GTEXT = "#079a10", RTEXT = "#e0431c";
+const F = 'font-size="14" font-family="PT Sans, Arial, sans-serif" fill="currentColor"';
+const GREEN = "#00C601", RED = "#FF5429", GTEXT = "var(--gtext)", RTEXT = "var(--rtext)";
 function svgBox(host, H, inner) {
   const W = Math.max(280, host.clientWidth || 600);
   host.innerHTML = '<svg viewBox="0 0 ' + W + " " + H + '" width="' + W + '" height="' + H + '">' + inner(W) + "</svg>";
@@ -394,6 +409,8 @@ document.addEventListener("keydown", e => {
 /* ---------- business or personal: the master switch in the top bar ---------- */
 function modeFilter() { return dash.mode === "personal" ? { entity: "personal", entities: null } : { entity: "", entities: ["ie ltd", "uk ltd"] }; }
 function renderMode() {
+  document.documentElement.classList.toggle("dark", dash.mode === "personal");
+  const ft = [...$("#tabs").children].find(b => lc(b.dataset.view) === "forecast"); if (ft) ft.textContent = dash.mode === "personal" ? "budget" : "forecast";
   const mp = $("#modePick"); mp.innerHTML = "";
   [["business", "business"], ["personal", "personal"]].forEach(([k, t]) => {
     const b = el("button", null, t); b.type = "button"; b.setAttribute("aria-pressed", dash.mode === k);
@@ -401,7 +418,7 @@ function renderMode() {
       if (dash.mode === k) return;
       dash.mode = k; dash.fy = null; dash.month = null; dash.flow = dash.acct = null;
       if (view === "dashboard") renderDashboard();
-      else { renderMode(); if (view.toLowerCase() === "transactions") { Object.assign(txFilter, TX_CLEAR, modeFilter()); showView(view); } }
+      else { renderMode(); if (view.toLowerCase() === "transactions") Object.assign(txFilter, TX_CLEAR, modeFilter()); if (view.toLowerCase() === "forecast") fc.pick = null; showView(view); }
     };
     mp.append(b);
   });
@@ -448,12 +465,18 @@ function renderSummary(rg) {
   const than = { year: "last year", "3m": "the 3 months before", month: "the month before" }[rg.kind];
   const change = (a, b) => { if (rg.kind === "all") return "since " + longDate(rg.from); if (!b) return "nothing to compare"; const c = (Math.abs(a) - Math.abs(b)) / Math.abs(b); return pct(Math.abs(c)) + (c >= 0 ? " higher than " : " lower than ") + than; };
   const cols = [
-    ["revenue", f.income, "g", change(f.income, p.income)],
-    ["costs", -f.costs, "r", change(f.costs, p.costs)],
-    [personal ? "left over" : "profit before tax", f.profit, f.profit < 0 ? "r" : "g", f.income > 0 && Math.abs(f.profit / f.income) <= 5 ? pct(f.profit / f.income) + " of revenue" : ""]
+    [words().rev, f.income, "g", change(f.income, p.income)],
+    [words().cost, -f.costs, "r", change(f.costs, p.costs)],
+    [words().pbt, f.profit, f.profit < 0 ? "r" : "g", f.income > 0 && Math.abs(f.profit / f.income) <= 5 ? pct(f.profit / f.income) + " " + words().of : ""]
   ];
   if (!personal) cols.push(["tax due (estimate)", f.tax, "r", f.taxPaid > 0.5 ? money(f.taxPaid) + " paid" : "nothing paid yet"]);
   cols.push(["cash", f.cash, f.cash < 0 ? "r" : "g", rg.kind === "all" ? "today" : change(f.cash, p.cash)]);
+  if (personal) {
+    // net worth: your cash, plus what the companies owe you on your director's loan (minus what you owe them)
+    const loan = c => balance(c, r => ["director's loan", "business costs paid personally"].includes(r.category), ["ie ltd", "uk ltd", "personal"]);
+    const nw = f.cash + loan(rg.to), nwp = rg.kind === "all" ? null : (p.cash || 0) + loan(prevRange(rg).to);
+    cols.push(["net worth", nw, nw < 0 ? "r" : "g", nwp == null ? "cash and director's loan" : change(nw, nwp)]);
+  }
   $("#summary").replaceChildren(...cols.map(([label, v, cls, note]) => { const d = el("div", "fig"); d.append(el("i", null, label), el("span", cls, money(v)), el("span", null, note)); return d; }));
 }
 
@@ -482,23 +505,23 @@ function renderMonthChart(rg) {
   const dated = upcomingFilings();
   svgBox(chart, 250, W => {
     const L = 40, base = 190, y = v => base - v / max * 180, slot = (W - L) / N, many = N > 18; let s = "";
-    [0, 0.25, 0.5, 0.75, 1].forEach(t => { const v = max * t; s += '<line x1="' + L + '" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="' + (t ? "#ecebe7" : "#26241f") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (t ? short(v) : "0") + "</text>"; });
+    [0, 0.25, 0.5, 0.75, 1].forEach(t => { const v = max * t; s += '<line x1="' + L + '" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" style="stroke:' + (t ? "var(--grid)" : "currentColor") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (t ? short(v) : "0") + "</text>"; });
     series.forEach((d, k) => {
       const x = L + k * slot + slot * 0.14, bw = slot * 0.34, on = d.m >= rg.from.slice(0, 7) && d.m <= rg.to.slice(0, 7);
       s += '<g opacity="' + (on ? 1 : 0.3) + '"><rect x="' + x + '" y="' + y(d.inc) + '" width="' + bw + '" height="' + (base - y(d.inc)) + '" fill="' + GREEN + '"/>'
         + '<rect x="' + (x + bw + 2) + '" y="' + y(d.cost) + '" width="' + bw + '" height="' + (base - y(d.cost)) + '" fill="' + RED + '"/></g>'
         + (many ? (d.mi === 0 ? '<text x="' + (L + k * slot) + '" y="' + (base + 20) + '" ' + F + ">" + d.m.slice(0, 4) + "</text>" : "") : '<text x="' + x + '" y="' + (base + 20) + '" ' + F + ">" + (slot < 44 ? d.label[0] : d.label) + "</text>");
       // a dotted line where each financial year starts
-      if (k && d.mi === fyStartMonth) { const lx = L + k * slot; s += '<line x1="' + lx + '" x2="' + lx + '" y1="4" y2="' + base + '" stroke="#26241f" stroke-dasharray="2 3"/><text x="' + (lx + 4) + '" y="14" ' + F + ' font-style="italic">' + fyLabel(new Date(d.m + "-01T00:00:00"), scopeYe()) + "</text>"; }
-      if (slot >= 44 && d.started && (d.inc || d.cost)) { const n = d.inc - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" fill="' + (n < 0 ? RTEXT : GTEXT) + '">' + (n < 0 ? "" : "+") + short(n) + "</text>"; }
-      s += '<rect class="hit" x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="245" fill="transparent" data-month="' + d.m + '" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|revenue " + money(d.inc) + "|costs " + money(d.cost) + "|" + (d.inc - d.cost < 0 ? "loss " : "profit ") + money(Math.abs(d.inc - d.cost))) + '"/>';
+      if (k && d.mi === fyStartMonth) { const lx = L + k * slot; s += '<line x1="' + lx + '" x2="' + lx + '" y1="4" y2="' + base + '" stroke="currentColor" stroke-dasharray="2 3"/><text x="' + (lx + 4) + '" y="14" ' + F + ' font-style="italic">' + fyLabel(new Date(d.m + "-01T00:00:00"), scopeYe()) + "</text>"; }
+      if (slot >= 44 && d.started && (d.inc || d.cost)) { const n = d.inc - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:' + (n < 0 ? RTEXT : GTEXT) + '">' + (n < 0 ? "" : "+") + short(n) + "</text>"; }
+      s += '<rect class="hit" x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="245" fill="transparent" data-month="' + d.m + '" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|" + words().rev + " " + money(d.inc) + "|" + words().cost + " " + money(d.cost) + "|" + (d.inc - d.cost < 0 ? (dash.scope === "personal" ? "short " : "loss ") : words().keep + " ") + money(Math.abs(d.inc - d.cost))) + '"/>';
     });
     // filing targets sit on the chart's own baseline, as dots at their dates
     const xd = dstr => { const d = new Date(dstr + "T00:00:00"), k = (d.getFullYear() - start.getFullYear()) * 12 + d.getMonth() - start.getMonth(); return L + (k + (d.getDate() - 1) / monthEnd(d).getDate()) * slot; };
-    dated.filter(g => g.when >= fyStart && g.when <= fyEnd).forEach(g => { const xx = xd(g.when); s += '<circle cx="' + xx + '" cy="' + base + '" r="6" fill="' + (g.soon ? "#ffff00" : "#26241f") + '" stroke="#26241f"/><rect x="' + (xx - 10) + '" y="' + (base - 10) + '" width="20" height="20" fill="transparent" data-tip="' + esc(g.tip) + '"/>'; });
+    dated.filter(g => g.when >= fyStart && g.when <= fyEnd).forEach(g => { const xx = xd(g.when); s += '<circle cx="' + xx + '" cy="' + base + '" r="6" fill="' + (g.soon ? "#ffff00" : "currentColor") + '" stroke="currentColor"/><rect x="' + (xx - 10) + '" y="' + (base - 10) + '" width="20" height="20" fill="transparent" data-tip="' + esc(g.tip) + '"/>'; });
     return s;
   });
-  const lg = el("div", "legend"); lg.innerHTML = '<span><span class="sw" style="background:' + GREEN + '"></span>revenue</span><span><span class="sw" style="background:' + RED + '"></span>costs</span>';
+  const lg = el("div", "legend"); lg.innerHTML = '<span><span class="sw" style="background:' + GREEN + '"></span>' + words().rev + '</span><span><span class="sw" style="background:' + RED + '"></span>' + words().cost + "</span>";
   if (dated.length) {
     const later = dated.filter(g => g.when > fyEnd), n = later.reduce((a, g) => a + g.items.length, 0);
     lg.insertAdjacentHTML("beforeend", '<span><span class="dot"></span>filing target</span>' + (n ? '<span data-tip="' + esc(later.map(g => g.tip).join("| |")) + '">→ ' + n + " later</span>" : ""));
@@ -541,11 +564,13 @@ function renderFlow(rg) {
   const outRows = sel(rg, r => isCost(r) || r.category === "director pay");
   const profit = allInc + total(outRows);
   const pctOf = (m, v) => v > 0 ? " (" + pct(m / v) + ")" : "";
-  list.replaceChildren(el("i", "mt", "revenue"));
-  list.append(lead("all revenue", money(allInc) + pctOf(profit, allInc), { sel: isSel("rev", null), onclick: () => go("rev", null) }));
-  streams.forEach(s => list.append(lead(s.label, money(s.v) + pctOf(s.margin, s.v), { sel: isSel("rev", s.label), onclick: () => go("rev", s.label) })));
-  list.append(el("i", "mt group", "costs"));
-  list.append(lead("all costs", money(-total(costRows)), { sel: isSel("cost", null), onclick: () => go("cost", null) }));
+  const w = words(), personal = dash.scope === "personal";
+  $("#flowTitle").textContent = w.box;
+  list.replaceChildren(el("i", "mt", w.rev));
+  list.append(lead(w.allRev, money(allInc) + pctOf(profit, allInc), { sel: isSel("rev", null), onclick: () => go("rev", null) }));
+  streams.forEach(s => list.append(lead(s.label, money(s.v) + (personal ? "" : pctOf(s.margin, s.v)), { sel: isSel("rev", s.label), onclick: () => go("rev", s.label) })));
+  list.append(el("i", "mt group", w.cost));
+  list.append(lead(w.allCost, money(-total(costRows)), { sel: isSel("cost", null), onclick: () => go("cost", null) }));
   cats.slice(0, 6).forEach(c => list.append(lead(catName(c.label), money(-c.v), { sel: isSel("cost", c.label), onclick: () => go("cost", c.label) })));
   const rest = cats.slice(6); if (rest.length) list.append(lead("everything else", money(-rest.reduce((a, c) => a + c.v, 0)), { onclick: () => openTx({ group: "cost", notIn: cats.slice(0, 6).map(c => c.label) }, "everything else") }));
 
@@ -558,10 +583,10 @@ function renderFlow(rg) {
     const v = s ? s.v : allInc, keepV = s ? s.margin : profit;
     let steps = s ? s.steps : groupBy(outRows, "category").filter(c => c.v < -0.5).sort((a, b) => a.v - b.v);
     if (!s) { const top = steps.slice(0, 5), r = steps.slice(5).reduce((a, c) => a + c.v, 0); steps = r < -0.5 ? top.concat([{ label: "everything else", v: r }]) : top; }
-    title = s ? s.label : "all revenue";
-    items = [{ label: s ? "margin" : "profit", v: Math.max(0, keepV), keep: true, value: [el("span", keepV < 0 ? "r" : "g", money(keepV)), document.createTextNode(pctOf(keepV, v))] }]
+    title = s ? s.label : w.allRev;
+    items = [{ label: s ? (personal ? w.keep : "margin") : w.keep, v: Math.max(0, keepV), keep: true, value: [el("span", keepV < 0 ? "r" : "g", money(keepV)), document.createTextNode(pctOf(keepV, v))] }]
       .concat(steps.map(st => ({ label: catName(st.label), v: -st.v, value: [el("span", "r", money(st.v)), document.createTextNode(pctOf(-st.v, v))], onclick: catClick(st.label) })));
-    items.total = { label: "revenue", v };
+    items.total = { label: w.rev, v };
   } else {
     kind = "cost";
     const pick = f.key ? costRows.filter(r => r.category === f.key) : costRows;
@@ -569,10 +594,10 @@ function renderFlow(rg) {
     const shown = parts.slice(0, 6), others = parts.slice(6);
     if (others.length) shown.push({ label: others.length + " others", v: others.reduce((a, p) => a + p.v, 0), others: true });
     const sum = -shown.reduce((a, p) => a + p.v, 0);
-    title = f.key ? catName(f.key) : "all costs";
+    title = f.key ? catName(f.key) : w.allCost;
     items = shown.map(it => ({ label: f.key ? it.label : catName(it.label), v: -it.v, value: money(-it.v) + pctOf(-it.v, sum),
       onclick: it.others ? () => openTx(f.key ? { category: f.key, notIn: null } : { group: "cost" }, f.key ? catName(f.key) : "all costs") : f.key ? () => openTx({ category: f.key, text: it.label }, it.label) : () => go("cost", it.label) }));
-    items.total = { label: f.key ? catName(f.key) : "all costs", v: sum };
+    items.total = { label: f.key ? catName(f.key) : w.allCost, v: sum };
   }
   let cost = 0; items.forEach(it => { it.c = it.keep ? GREEN : BAR_REDS[Math.min(cost++, 5)]; });
 
@@ -589,8 +614,8 @@ function splitBar(items, rg) {
     items.forEach((p, k) => {
       const w = Math.max(0, p.v) / whole * W; if (w <= 0) return;
       const t = pct(p.v / whole), fs = Math.max(7, Math.min(14, (w - 4) / (t.length * 0.56)));
-      out += '<g class="seg-part' + (p.onclick ? " hit" : "") + '" data-k="' + k + '" data-tip="' + esc(p.label + "|" + money(p.v) + "|" + t) + '"><rect x="' + x + '" y="0" width="' + w + '" height="32" fill="' + p.c + '" stroke="#fff" stroke-width="1"/>'
-        + '<text x="' + (w > 44 ? x + 8 : x + w / 2) + '" y="' + (16 + fs * 0.35) + '" font-size="' + fs.toFixed(1) + '" font-family="PT Sans, Arial, sans-serif" fill="#26241f" text-anchor="' + (w > 44 ? "start" : "middle") + '" pointer-events="none">' + t + "</text></g>";
+      out += '<g class="seg-part' + (p.onclick ? " hit" : "") + '" data-k="' + k + '" data-tip="' + esc(p.label + "|" + money(p.v) + "|" + t) + '"><rect x="' + x + '" y="0" width="' + w + '" height="32" fill="' + p.c + '" style="stroke:var(--card)" stroke-width="1"/>'
+        + '<text x="' + (w > 44 ? x + 8 : x + w / 2) + '" y="' + (16 + fs * 0.35) + '" font-size="' + fs.toFixed(1) + '" font-family="PT Sans, Arial, sans-serif" fill="#1a1917" text-anchor="' + (w > 44 ? "start" : "middle") + '" pointer-events="none">' + t + "</text></g>";
       x += w;
     });
     return out;
@@ -619,7 +644,7 @@ function renderCash(rg) {
   svgBox(box, 200, W => {
     const L = 44, T = 10, B = 170, y = v => B - (v - lo) / (hi - lo) * (B - T), slot = (W - L - 20) / 11; let s = "";
     const ticks = lo < 0 ? [lo, 0, hi] : [0, hi * 0.25, hi * 0.5, hi * 0.75, hi];
-    ticks.forEach(v => { s += '<line x1="' + L + '" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="' + (v === 0 ? "#26241f" : "#ecebe7") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (v ? short(v) : "0") + "</text>"; });
+    ticks.forEach(v => { s += '<line x1="' + L + '" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" style="stroke:' + (v === 0 ? "currentColor" : "var(--grid)") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (v ? short(v) : "0") + "</text>"; });
     const line = pts.map((p, k) => p.v == null ? null : (L + k * slot).toFixed(1) + "," + y(p.v).toFixed(1)).filter(Boolean);
     if (line.length > 1) s += '<polyline points="' + line.join(" ") + '" fill="none" stroke="' + GREEN + '" stroke-width="2"/>';
     pts.forEach((p, k) => {
@@ -678,114 +703,133 @@ function renderFilings() {
     if (more) row.append(el("i", null, more));
     box.append(row);
   }));
-  let due = 0; if (fl) fl.display.forEach(r => (r || []).forEach(v => { if (["to do", "confirm"].includes(lc(v))) due++; }));
+  // count to-dos only in the sections of the filings tab that belong to this mode
+  let due = 0, mine = false;
+  if (fl) fl.display.forEach(r => {
+    const first = lc((r || []).find(v => lc(v)) || "");
+    if (/company\)$|^personal$/.test(first)) mine = (first === "personal") === (dash.mode === "personal");
+    else if (mine) (r || []).slice(0, 6).forEach(v => { if (["to do", "confirm"].includes(lc(v))) due++; });
+  });
   if (fl) { const b = el("button", "more", due + " to do or confirm"); b.type = "button"; b.onclick = () => showView(fl.name); box.append(b); }
 }
 
 
-/* ---------- forecast: inputs from the forecast tab, the plan worked out here, in dollars ---------- */
-const FC_INPUTS = [
-  ["revenue", "retainer income", "retainers per month", "money"], ["revenue", "program price", "program price", "money"], ["revenue", "program sales", "program sales per month", "count"],
-  ["costs", "team", "team", "money"], ["costs", "ad spend", "ads", "money"], ["costs", "software", "software", "money"], ["costs", "other costs", "other costs", "money"],
-  ["costs", "payment fees", "payment fees", "pct"], ["costs", "corporation tax", "corporation tax", "pct"]
-];
+/* ---------- forecast (business) and budget (personal): inputs live on the forecast tab, the plan is worked out here, in dollars ---------- */
+const FC = {
+  business: { title: "forecast", col: 1, sides: ["revenue", "costs"], inputs: [
+    ["revenue", "retainer income", "retainers per month", "money"], ["revenue", "program price", "program price", "money"], ["revenue", "program sales", "program sales per month", "count"],
+    ["costs", "team", "team", "money"], ["costs", "ad spend", "ads", "money"], ["costs", "software", "software", "money"], ["costs", "other costs", "other costs", "money"],
+    ["costs", "payment fees", "payment fees", "pct"], ["costs", "corporation tax", "corporation tax", "pct"]] },
+  personal: { title: "budget", col: 18, sides: ["income", "spending"], inputs: [
+    ["income", "salary", "salary", "money"], ["income", "dividends", "dividends", "money"], ["income", "other income", "other income", "money"],
+    ["spending", "rent", "rent", "money"], ["spending", "bills", "bills", "money"], ["spending", "groceries", "groceries", "money"], ["spending", "eating out", "eating out", "money"],
+    ["spending", "transport", "transport", "money"], ["spending", "travel", "travel", "money"], ["spending", "everything else", "everything else", "money"]] }
+};
 const fc = { pick: null, sheet: false };
-function fcInputs() {
+function fcConf() { return FC[dash.mode === "personal" ? "personal" : "business"]; }
+function fcInputs(conf = fcConf()) {
   const t = tabByName("forecast"), out = {}; if (!t) return null;
-  t.display.forEach((r, i) => { const k = lc((r || [])[1]); if (k && (FC_INPUTS.some(x => x[1] === k) || k === "start month") && !(k in out)) { const v = String((r || [])[2] || "").trim(); out[k] = { i, raw: v, v: /%$/.test(v) ? parseFloat(v) / 100 : num(v) }; } });
-  return out;
+  t.display.forEach((r, i) => { const k = lc((r || [])[conf.col]); if (k && (conf.inputs.some(x => x[1] === k) || k === "start month") && !(k in out)) { const v = String((r || [])[conf.col + 1] || "").trim(); out[k] = { i, raw: v, v: /%$/.test(v) ? parseFloat(v) / 100 : num(v) }; } });
+  return out["start month"] ? out : null;
 }
 function fcPlan(inp) {
   const g = k => (inp[k] || {}).v || 0;
+  if (dash.mode === "personal") {
+    const inc = g("salary") + g("dividends") + g("other income"), parts = FC.personal.inputs.filter(x => x[0] === "spending").map(x => [x[2], g(x[1])]);
+    const costs = parts.reduce((a, p) => a + p[1], 0);
+    return { rev: inc, costs, pbt: inc - costs, keep: inc - costs, sources: [["salary", g("salary")], ["dividends", g("dividends")], ["other income", g("other income")]], all: { label: "all income", v: inc, steps: parts, keep: "saved" }, products: [] };
+  }
   const ret = g("retainer income"), prog = g("program price") * g("program sales"), rev = ret + prog, rate = g("payment fees");
   const team = g("team"), ads = g("ad spend"), soft = g("software"), other = g("other costs"), fees = rev * rate;
   const costs = team + ads + soft + other + fees, pbt = rev - costs, tax = Math.max(0, pbt) * g("corporation tax");
-  return { ret, prog, rev, team, ads, soft, other, fees, costs, pbt, tax, pat: pbt - tax, rate, sales: g("program sales"),
-    products: [
-      { label: "retainers", v: ret, steps: [["team", team], ["payment fees", ret * rate]] },
-      { label: "program", v: prog, steps: [["ads", ads], ["payment fees", prog * rate]] }
-    ] };
+  return { rev, costs, pbt, tax, keep: pbt - tax, sales: g("program sales"), ads,
+    all: { label: "all products", v: rev, steps: [["team", team], ["ads", ads], ["software", soft], ["other costs", other], ["payment fees", fees], ["corporation tax", tax]], keep: "profit after tax" },
+    products: [{ label: "retainers", v: ret, steps: [["team", team], ["payment fees", ret * rate]] }, { label: "program", v: prog, steps: [["ads", ads], ["payment fees", prog * rate]] }] };
 }
 function renderForecast() {
-  const inp = fcInputs(), t = tabByName("forecast");
+  const conf = fcConf(), inp = fcInputs(conf), t = tabByName("forecast"), personal = dash.mode === "personal", w = words();
   if (!inp) return;
+  $("#fcTitle").textContent = conf.title;
   const p = fcPlan(inp), start = new Date(((inp["start month"] || {}).raw || iso(new Date())).slice(0, 7) + "-01T00:00:00");
   const sm = $("#fcStart"); sm.value = iso(start).slice(0, 7);
-  sm.onchange = () => { if (/^\d{4}-\d{2}$/.test(sm.value)) saveInput(t, inp["start month"], sm.value + "-01"); };
+  sm.onchange = () => { if (/^\d{4}-\d{2}$/.test(sm.value)) saveInput(t, inp["start month"], sm.value + "-01", conf.col); };
   $("#fcSheet").onclick = () => { fc.sheet = true; showView("forecast"); };
 
   // inputs: click a figure to change it; it saves to the forecast tab
   const fmt = (x, kind) => kind === "pct" ? (Math.round(x * 1000) / 10) + "%" : kind === "count" ? String(Math.round(x * 100) / 100) : money(x);
-  ["revenue", "costs"].forEach(side => {
-    const box = $(side === "revenue" ? "#fcInRev" : "#fcInCost"); box.replaceChildren(el("i", "mt", side));
-    FC_INPUTS.filter(x => x[0] === side).forEach(([, key, label, kind]) => {
+  conf.sides.forEach((side, n) => {
+    const box = $(n ? "#fcInCost" : "#fcInRev"); box.replaceChildren(el("i", "mt", side));
+    conf.inputs.filter(x => x[0] === side).forEach(([, key, label, kind]) => {
       const cell = inp[key]; if (!cell) return;
       const val = el("span", "editable", fmt(cell.v, kind));
       val.onclick = () => {
         const input = el("input", "inline"); input.value = kind === "pct" ? String(Math.round(cell.v * 1000) / 10) : String(cell.v); val.replaceChildren(input); input.focus(); input.select();
-        let done = false; const finish = ok => { if (done) return; done = true; const n = parseFloat(input.value.replace(/[^0-9.\-]/g, "")); if (ok && isFinite(n)) saveInput(t, cell, kind === "pct" ? n / 100 : n); else val.textContent = fmt(cell.v, kind); };
+        let done = false; const finish = ok => { if (done) return; done = true; const v = parseFloat(input.value.replace(/[^0-9.\-]/g, "")); if (ok && isFinite(v)) saveInput(t, cell, kind === "pct" ? v / 100 : v, conf.col); else val.textContent = fmt(cell.v, kind); };
         input.onkeydown = e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); }; input.onblur = () => finish(true);
       };
       box.append(lead(label, [val]));
     });
   });
 
-  // projection: 12 months from the start month; months that have started show what actually happened
-  const today = iso(new Date()), cos = ["ie ltd", "uk ltd"], months = [];
+  // the next 12 months from the start month; months that have started show what actually happened
+  const today = iso(new Date()), ents = personal ? ["personal"] : ["ie ltd", "uk ltd"], months = [];
   for (let k = 0; k < 12; k++) {
     const m = addMonths(start, k), x = { from: iso(m), to: iso(monthEnd(m)) }, started = x.from <= today;
-    const rows = started ? sel(x, null, cos) : [];
-    months.push({ m: iso(m).slice(0, 7), label: MONTHS[m.getMonth()], started, inc: total(rows.filter(isIncome)), cost: -total(rows.filter(r => isCost(r) || r.category === "director pay")) });
+    const rows = started ? sel(x, null, ents) : [];
+    months.push({ m: iso(m).slice(0, 7), label: MONTHS[m.getMonth()], started, inc: total(rows.filter(isIncome)), cost: -total(rows.filter(r => isCost(r) || (!personal && r.category === "director pay"))) });
   }
   const host = $("#fcChart"), chart = el("div"); host.replaceChildren(chart);
   const max = niceMax(Math.max(p.rev, p.costs, ...months.map(d => Math.max(d.inc, d.cost)), 1));
-  svgBox(chart, 250, W => {
-    const L = 40, base = 190, y = v => base - v / max * 180, slot = (W - L) / 12; let s = "";
-    [0, 0.25, 0.5, 0.75, 1].forEach(tk => { const v = max * tk; s += '<line x1="' + L + '" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="' + (tk ? "#ecebe7" : "#26241f") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (tk ? short(v) : "0") + "</text>"; });
+  svgBox(chart, 250, W2 => {
+    const L = 40, base = 190, y = v => base - v / max * 180, slot = (W2 - L) / 12; let s = "";
+    [0, 0.25, 0.5, 0.75, 1].forEach(tk => { const v = max * tk; s += '<line x1="' + L + '" x2="' + W2 + '" y1="' + y(v) + '" y2="' + y(v) + '" style="stroke:' + (tk ? "var(--grid)" : "currentColor") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (tk ? short(v) : "0") + "</text>"; });
     months.forEach((d, k) => {
       const x = L + k * slot + slot * 0.14, bw = slot * 0.34, inc = d.started ? d.inc : p.rev, cost = d.started ? d.cost : p.costs, a = d.started ? 1 : 0.4;
       s += '<g opacity="' + a + '"><rect x="' + x + '" y="' + y(inc) + '" width="' + bw + '" height="' + (base - y(inc)) + '" fill="' + GREEN + '"/><rect x="' + (x + bw + 2) + '" y="' + y(cost) + '" width="' + bw + '" height="' + (base - y(cost)) + '" fill="' + RED + '"/></g>'
         + '<text x="' + x + '" y="' + (base + 20) + '" ' + F + ">" + (slot < 44 ? d.label[0] : d.label) + "</text>";
-      const n = inc - cost; if (slot >= 44) s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" fill="' + (n < 0 ? RTEXT : GTEXT) + '">' + (n < 0 ? "" : "+") + short(n) + "</text>";
-      s += '<rect x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="245" fill="transparent" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|" + (d.started ? "actual" : "plan") + "|revenue " + money(inc) + "|costs " + money(cost) + (d.started ? "|plan: revenue " + money(p.rev) + ", costs " + money(p.costs) : "")) + '"/>';
+      const n = inc - cost; if (slot >= 44) s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:' + (n < 0 ? RTEXT : GTEXT) + '">' + (n < 0 ? "" : "+") + short(n) + "</text>";
+      s += '<rect x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="245" fill="transparent" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|" + (d.started ? "actual" : "plan") + "|" + w.rev + " " + money(inc) + "|" + w.cost + " " + money(cost) + (d.started ? "|plan: " + w.rev + " " + money(p.rev) + ", " + w.cost + " " + money(p.costs) : "")) + '"/>';
     });
     return s;
   });
-  const lg = el("div", "legend"); lg.innerHTML = '<span><span class="sw" style="background:' + GREEN + '"></span>revenue</span><span><span class="sw" style="background:' + RED + '"></span>costs</span><span><span class="sw faded" style="background:' + GREEN + '"></span>plan</span>';
+  const lg = el("div", "legend"); lg.innerHTML = '<span><span class="sw" style="background:' + GREEN + '"></span>' + w.rev + '</span><span><span class="sw" style="background:' + RED + '"></span>' + w.cost + '</span><span><span class="sw faded" style="background:' + GREEN + '"></span>plan</span>';
   host.append(lg);
-  const figs = [["revenue", p.rev * 12, "g", money(p.rev) + " a month"], ["costs", p.costs * 12, "r", money(p.costs) + " a month"], ["profit before tax", p.pbt * 12, p.pbt < 0 ? "r" : "g", p.rev > 0 ? pct(p.pbt / p.rev) + " of revenue" : ""], ["corporation tax", p.tax * 12, "r", money(p.tax) + " a month"], ["profit after tax", p.pat * 12, p.pat < 0 ? "r" : "g", money(p.pat) + " a month"]];
+  const figs = personal
+    ? [["income", p.rev * 12, "g", money(p.rev) + " a month"], ["spending", p.costs * 12, "r", money(p.costs) + " a month"], ["saved", p.keep * 12, p.keep < 0 ? "r" : "g", p.rev > 0 ? pct(p.keep / p.rev) + " of income" : ""]]
+    : [["revenue", p.rev * 12, "g", money(p.rev) + " a month"], ["costs", p.costs * 12, "r", money(p.costs) + " a month"], ["profit before tax", p.pbt * 12, p.pbt < 0 ? "r" : "g", p.rev > 0 ? pct(p.pbt / p.rev) + " of revenue" : ""], ["corporation tax", p.tax * 12, "r", money(p.tax) + " a month"], ["profit after tax", p.keep * 12, p.keep < 0 ? "r" : "g", money(p.keep) + " a month"]];
   $("#fcFigs").replaceChildren(...figs.map(([l, v, c, n]) => { const d = el("div", "fig"); d.append(el("i", null, l), el("span", c, money(v)), el("span", null, n)); return d; }));
 
-  // by product: what each one brings in, what it costs, what it leaves
-  const list = $("#fcProdList"), detail = $("#fcProdDetail");
-  const all = { label: "all products", v: p.rev, steps: [["team", p.team], ["ads", p.ads], ["software", p.soft], ["other costs", p.other], ["payment fees", p.fees], ["corporation tax", p.tax]], keep: "profit after tax" };
+  // what each product brings in and costs (business), or where your income goes (personal)
+  $("#fcProdTitle").textContent = personal ? "where it goes" : "by product";
+  const list = $("#fcProdList"), detail = $("#fcProdDetail"), all = p.all;
+  all.margin = p.keep;
   p.products.forEach(x => (x.margin = x.v - x.steps.reduce((a, s) => a + s[1], 0)));
-  all.margin = p.pat;
   const pick = p.products.find(x => x.label === fc.pick) || all;
-  list.replaceChildren(el("i", "mt", "product"));
-  [all].concat(p.products).forEach(x => list.append(lead(x.label, money(x.v) + (x.v > 0 ? " (" + pct(x.margin / x.v) + ")" : ""), { sel: x === pick, onclick: () => { fc.pick = x === all ? null : x.label; renderForecast(); } })));
+  list.replaceChildren(el("i", "mt", personal ? "source" : "product"));
+  if (personal) { list.append(lead(all.label, money(all.v), { sel: true })); p.sources.forEach(([l, v]) => list.append(lead(l, money(v)))); }
+  else [all].concat(p.products).forEach(x => list.append(lead(x.label, money(x.v) + (x.v > 0 ? " (" + pct(x.margin / x.v) + ")" : ""), { sel: x === pick, onclick: () => { fc.pick = x === all ? null : x.label; renderForecast(); } })));
   const share = v => pick.v > 0 ? " (" + pct(v / pick.v) + ")" : "";
   let k = 0;
   const items = [{ label: pick.keep || "margin", v: Math.max(0, pick.margin), keep: true, c: GREEN, value: [el("span", pick.margin < 0 ? "r" : "g", money(pick.margin)), document.createTextNode(share(pick.margin))] }]
     .concat(pick.steps.filter(s => s[1] > 0.5).map(([l, v]) => ({ label: l, v, c: BAR_REDS[Math.min(k++, 5)], value: [el("span", "r", money(-v)), document.createTextNode(share(v))] })));
-  items.total = { label: "revenue a month", v: pick.v };
+  items.total = { label: w.rev + " a month", v: pick.v };
   const bar = splitBar(items, { months: 1 });
   if (pick.label === "program" && p.sales > 0) bar.lastChild.append(lead("ads per sale", money(p.ads / p.sales), { italic: true, cls: "total" }));
   detail.replaceChildren(el("i", "mt", pick.label), bar);
 
-  // budget against actual, for the months that have started
-  const ba = $("#fcActual"), done = months.filter(d => d.started);
+  // plan against actual, for the months that have started
+  const ba = $("#fcActual"), done = months.filter(d => d.started), what = personal ? "saved" : "profit", planned = personal ? p.keep : p.pbt;
   ba.replaceChildren(el("i", "mt", "month"));
   if (!done.length) ba.append(el("p", "empty", "the plan starts " + MONTHS[start.getMonth()] + " " + start.getFullYear()));
   done.forEach(d => {
-    const act = d.inc - d.cost, diff = act - p.pbt;
-    ba.append(lead(d.label + " " + d.m.slice(0, 4), [el("span", act < 0 ? "r" : "g", money(act)), document.createTextNode(" profit against " + money(p.pbt) + " planned ("), el("span", diff < 0 ? "r" : "g", (diff < 0 ? "" : "+") + money(diff)), document.createTextNode(")")]));
+    const act = d.inc - d.cost, diff = act - planned;
+    ba.append(lead(d.label + " " + d.m.slice(0, 4), [el("span", act < 0 ? "r" : "g", money(act)), document.createTextNode(" " + what + " against " + money(planned) + " planned ("), el("span", diff < 0 ? "r" : "g", (diff < 0 ? "" : "+") + money(diff)), document.createTextNode(")")]));
   });
 }
-async function saveInput(tab, cell, value) {
+async function saveInput(tab, cell, value, col = 1) {
   if (!cell) return;
-  await writeCell(tab, cell.i, 2, value);
-  if (TEST) { const r = tab.display[cell.i]; r[2] = typeof value === "number" && value < 1 && value > 0 ? (value * 100) + "%" : String(value); }
+  await writeCell(tab, cell.i, col + 1, value);
+  if (TEST) { const r = tab.display[cell.i]; r[col + 1] = typeof value === "number" && value < 1 && value > 0 ? (value * 100) + "%" : String(value); }
   buildModel(); renderForecast();
 }
 
@@ -793,7 +837,9 @@ async function saveInput(tab, cell, value) {
 function openTasks() {
   const t = data.tasks; if (!t) return [];
   const out = [];
-  t.display.forEach((r, i) => (r || []).forEach((v, j) => { const f = (t.fmt[i] || [])[j] || {}; if (i > 1 && lc(v) && !f.b && !f.s && !(typeof ((t.raw[i] || [])[j]) === "string" && t.raw[i][j].startsWith("="))) out.push({ i, j, text: String(v) }); }));
+  // the task is in column b; "personal" in column c marks it as yours rather than the business's
+  const mine = dash.mode === "personal";
+  t.display.forEach((r, i) => { const v = (r || [])[1], f = (t.fmt[i] || [])[1] || {}; if (i > 1 && lc(v) && !f.b && !f.s && (lc((r || [])[2]) === "personal") === mine) out.push({ i, j: 1, text: String(v) }); });
   return out;
 }
 function attentionItems() {
@@ -914,7 +960,7 @@ function saveStatements() {
 /* ---------- sheet tabs ---------- */
 function txMatches(f, tab) {
   const c = data.cols, q = lc(f.text);
-  return data.rows.filter(r => (!f.from || (r.date >= f.from && r.date <= f.to)) && (!f.entities || f.entities.includes(r.entity)) && (!f.entity || r.entity === f.entity) && (!f.account || r.account === f.account)
+  return data.rows.filter(r => !r.synthetic && (!f.from || (r.date >= f.from && r.date <= f.to)) && (!f.entities || f.entities.includes(r.entity)) && (!f.entity || r.entity === f.entity) && (!f.account || r.account === f.account)
     && (!f.category || r.category === f.category) && (!f.group || r.group === f.group) && (!f.notIn || !f.notIn.includes(r.category))
     && (f.only !== "wrong" || WRONG_ACCOUNT.includes(r.category)) && (f.only !== "receipt" || (r.group === "cost" && !r.receipt))
     && (!q || (r.merchant + " " + lc((tab.display[r.i] || [])[c.reference]) + " " + r.category + " " + r.date).includes(q))).reverse();
@@ -952,6 +998,7 @@ function showView(name) {
   view = name;
   [...$("#tabs").children].forEach(b => b.setAttribute("aria-selected", b.dataset.view === name));
   const isFc = name.toLowerCase() === "forecast" && !fc.sheet && fcInputs();
+  if (name.toLowerCase() === "forecast" && !fc.sheet && !isFc) fc.sheet = true;
   $("#viewDashboard").hidden = name !== "dashboard";
   $("#viewForecast").hidden = !isFc;
   $("#viewSheet").hidden = name === "dashboard" || !!isFc;
