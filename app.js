@@ -461,7 +461,7 @@ function renderDashboard() {
   const yp = $("#yearPick"); yp.innerHTML = "";
   fys.forEach(f => { const o = el("option", null, f.label); o.value = f.start; o.selected = f.start === dash.fy; yp.append(o); });
   yp.onchange = () => { dash.fy = yp.value; dash.period = "fy"; dash.month = null; renderDashboard(); };
-  yp.closest(".step").classList.toggle("on", dash.period === "fy" && !dash.month);
+  yp.closest(".step").classList.toggle("on", dash.period === "fy" && !dash.month && dash.fy !== iso(fyStartFor(iso(new Date()), scopeYe())));
   const chip = $("#monthChip");
   chip.hidden = !dash.month; if (dash.month) { const m = new Date(dash.month + "-01T00:00:00"); chip.textContent = MONTHS[m.getMonth()] + " " + m.getFullYear(); chip.onclick = () => { dash.month = null; renderDashboard(); }; }
   const personal = dash.scope === "personal";
@@ -483,7 +483,8 @@ function renderDashboard() {
 function renderSummary(rg) {
   const f = figures(rg), p = rg.kind === "all" ? {} : figures(prevRange(rg)), personal = dash.scope === "personal";
   const than = { year: "last year", "3m": "the 3 months before", month: "the month before" }[rg.kind];
-  const change = (a, b) => { if (rg.kind === "all") return "since " + longDate(rg.from); if (!b) return "nothing to compare"; const c = (Math.abs(a) - Math.abs(b)) / Math.abs(b); return pct(Math.abs(c)) + (c >= 0 ? " higher than " : " lower than ") + than; };
+  // against the period before, in brackets after each figure; the heading says what it's compared with
+  const change = (a, b) => { if (rg.kind === "all" || !b) return ""; const c = (Math.abs(a) - Math.abs(b)) / Math.abs(b); return (c >= 0 ? "+" : "−") + pct(Math.abs(c)); };
   const cols = [
     [words().rev, f.income, "g", change(f.income, p.income)],
     [words().cost, -f.costs, "r", change(f.costs, p.costs)],
@@ -492,18 +493,24 @@ function renderSummary(rg) {
   const bud = personal && monthlyBudget();
   if (bud) {
     const planned = bud.spend * monthsElapsed(rg), over = -f.costs - planned;
-    cols.push(["budget", planned, "", [el("span", over > 0.5 ? "r" : "g", over > 0.5 ? "over by " + money(over) : money(-over) + " under")]]);
+    cols.push(["budget", planned, "", [el("span", over > 0.5 ? "r" : "g", over > 0.5 ? money(over) + " over" : money(-over) + " under")]]);
   }
-  if (!personal) cols.push(["tax due (estimate)", f.tax, "r", f.taxPaid > 0.5 ? money(f.taxPaid) + " paid" : "nothing paid yet"]);
-  cols.push(["cash", f.cash, f.cash < 0 ? "r" : "g", rg.kind === "all" ? "today" : change(f.cash, p.cash)]);
+  if (!personal) cols.push(["tax due (estimate)", f.tax, "r", f.taxPaid > 0.5 ? money(f.taxPaid) + " paid" : "none paid"]);
+  cols.push(["cash", f.cash, f.cash < 0 ? "r" : "g", rg.kind === "all" ? "" : change(f.cash, p.cash)]);
   const bi = cols.findIndex(c => c[0] === "budget"); if (bi > 2) cols.splice(2, 0, cols.splice(bi, 1)[0]);
   if (personal) {
     // net worth: your cash, plus what the companies owe you on your director's loan (minus what you owe them)
     const loan = c => balance(c, r => ["director's loan", "business costs paid personally"].includes(r.category), ["ie ltd", "uk ltd", "personal"]);
     const nw = f.cash + loan(rg.to) + investValue(), nwp = rg.kind === "all" ? null : (p.cash || 0) + loan(prevRange(rg).to) + investedBy(prevRange(rg).to);
-    cols.push(["net worth", nw, nw < 0 ? "r" : "g", nwp == null ? "cash, investments and director's loan" : change(nw, nwp)]);
+    cols.push(["net worth", nw, nw < 0 ? "r" : "g", nwp == null ? "" : change(nw, nwp)]);
   }
-  $("#summary").replaceChildren(...cols.map(([label, v, cls, note]) => { const d = el("div", "fig"), n = el("span"); if (Array.isArray(note)) n.append(...note); else n.textContent = note; d.append(el("i", null, label), el("span", cls || null, money(v)), n); return d; }));
+  // a list like the sections below: each figure coloured, its comparison in brackets after it
+  const heading = rg.kind === "all" ? "since " + longDate(rg.from) : "compared with " + than;
+  $("#summary").replaceChildren(el("i", "mt", heading), ...cols.map(([label, v, cls, note]) => {
+    const val = [el("span", cls || null, money(v))];
+    if (note && (Array.isArray(note) ? note.length : true)) { val.push(document.createTextNode(" (")); if (Array.isArray(note)) val.push(...note); else val.push(document.createTextNode(note)); val.push(document.createTextNode(")")); }
+    return lead(label, val);
+  }));
 }
 
 // the months the chart shows: the financial year, everything since the start, or the 12 months up to the period picked
@@ -560,7 +567,7 @@ function renderMonthChart(rg) {
       const ghost = d.ly > 0.5 ? '<rect x="' + (x - 3) + '" y="' + y(d.ly) + '" width="' + (bw + 6) + '" height="' + (base - y(d.ly)) + '" fill="url(#hatch)"/>' : "";
       s += '<g opacity="' + (on ? 1 : 0.3) + '">' + ghost + '<rect x="' + x + '" y="' + y(d.inc) + '" width="' + bw + '" height="' + (base - y(d.inc)) + '" fill="' + GREEN + '"/>'
         + '<rect x="' + (x + bw + 2) + '" y="' + y(d.cost) + '" width="' + bw + '" height="' + (base - y(d.cost)) + '" fill="' + RED + '"/></g>'
-        + (many ? (d.mi === 0 ? '<text x="' + (L + k * slot) + '" y="' + (base + 20) + '" ' + F + ">" + d.m.slice(0, 4) + "</text>" : "") : '<text x="' + x + '" y="' + (base + 20) + '" ' + F + ">" + (slot < 44 ? d.label[0] : d.label) + "</text>");
+        + (many ? (d.mi === 0 ? '<text x="' + (L + k * slot) + '" y="' + (base + 20) + '" ' + F + ">" + d.m.slice(0, 4) + "</text>" : "") : '<text x="' + x + '" y="' + (base + 20) + '" ' + F + ">" + (slot < 30 ? d.label[0] : d.label) + "</text>");
       // a dotted line where each financial year starts
       if (k && d.mi === fyStartMonth) { const lx = L + k * slot; s += '<line x1="' + lx + '" x2="' + lx + '" y1="4" y2="' + base + '" style="stroke:var(--fyline)" stroke-dasharray="2 3"/><text x="' + (lx + 4) + '" y="40" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:var(--grey)" font-style="italic">' + fyLabel(new Date(d.m + "-01T00:00:00"), scopeYe()) + "</text>"; }
       if (bud && slot >= 44 && d.started) { const u = bud.spend - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:' + (u < 0 ? RTEXT : GTEXT) + '">' + (u < 0 ? "+" : "−") + short(Math.abs(u)) + "</text>"; }
@@ -1390,11 +1397,12 @@ function txView({ head, grid, scroller, host, tab, f, rebuild, key }) {
   const recSel = el("select", "box"); [["", "all receipts"], ["missing", "receipt missing"], ["linked", "receipt linked"], ["none", "no receipt needed"]].forEach(([v, l]) => recSel.append(new Option(l, v)));
   recSel.value = f.rec || ""; recSel.onchange = () => { f.rec = recSel.value; draw(); };
   head.append(search, mk("all entities", entities, "entity"), mk("all accounts", accounts, "account"), mk("all categories", cats, "category"), recSel);
-  if (f.only) { const b = el("button", "box chip", f.only === "wrong" ? "paid from the wrong account" : "no receipt"); b.type = "button"; b.onclick = () => { f.only = null; rebuild(); }; head.append(b); }
-  if (f.group && !f.category) { const b = el("button", "box chip", "all " + f.group + "s"); b.type = "button"; b.onclick = () => { f.group = ""; rebuild(); }; head.append(b); }
-  if (f.from) { const b = el("button", "box chip", longDate(f.from) + " – " + longDate(f.to)); b.type = "button"; b.onclick = () => { f.from = f.to = ""; rebuild(); }; head.append(b); }
-  if (f.supplier) { const b = el("button", "box chip", f.supplier); b.type = "button"; b.onclick = () => { f.supplier = ""; rebuild(); }; head.append(b); }
-  if (f.notIn) { const b = el("button", "box chip", "everything else"); b.type = "button"; b.onclick = () => { f.notIn = null; rebuild(); }; head.append(b); }
+  const chipRow = el("div", "chips");
+  if (f.only) { const b = el("button", "box chip", f.only === "wrong" ? "paid from the wrong account" : "no receipt"); b.type = "button"; b.onclick = () => { f.only = null; rebuild(); }; chipRow.append(b); }
+  if (f.group && !f.category) { const b = el("button", "box chip", "all " + f.group + "s"); b.type = "button"; b.onclick = () => { f.group = ""; rebuild(); }; chipRow.append(b); }
+  if (f.from) { const b = el("button", "box chip", longDate(f.from) + " – " + longDate(f.to)); b.type = "button"; b.onclick = () => { f.from = f.to = ""; rebuild(); }; chipRow.append(b); }
+  if (f.supplier) { const b = el("button", "box chip", f.supplier); b.type = "button"; b.onclick = () => { f.supplier = ""; rebuild(); }; chipRow.append(b); }
+  if (f.notIn) { const b = el("button", "box chip", "everything else"); b.type = "button"; b.onclick = () => { f.notIn = null; rebuild(); }; chipRow.append(b); }
   head.append(count);
   let t; search.oninput = () => { clearTimeout(t); t = setTimeout(() => { f.text = search.value; draw(); }, 150); };
 
@@ -1422,6 +1430,8 @@ function txView({ head, grid, scroller, host, tab, f, rebuild, key }) {
   };
   const colWrap = el("span", "colwrap"); colWrap.append(colBtn, menu); head.append(exp, colWrap);
   head.prepend(count); head.classList.add("tx-head");
+  // active filters sit on a line of their own under the bar, left-aligned, so the bar never wraps
+  if (chipRow.children.length) head.append(chipRow);
   const fmt2 = v => (v < 0 ? "-" : "") + Math.abs(v).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const PAGE = 120;
   function draw() {

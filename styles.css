@@ -115,7 +115,8 @@ main { padding: 12px 24px 40px; }
 .filters #pdfButton { margin-left: auto; }
 
 .sec { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 24px; padding: 18px 20px; margin-bottom: 12px; background: var(--card); }
-#summary, .figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); row-gap: 14px; }
+.figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); row-gap: 14px; }
+#summary { display: block; }
 .fig { display: grid; align-content: start; gap: 3px; padding: 0 14px; border-left: 1px solid var(--hair); }
 .fig:first-child { padding-left: 0; border-left: 0; }
 
@@ -136,7 +137,7 @@ main { padding: 12px 24px 40px; }
 .step .prev, .step .next { padding: 0 12px; font-size: 18px; line-height: 1; }
 .step button:disabled { color: var(--hair); cursor: default; }
 .step label { display: flex; align-items: center; border-left: 1px solid var(--hair); }
-#summary, .figs { margin-top: 18px; }
+.figs { margin-top: 18px; }
 .dot { display: inline-block; width: 13px; height: 13px; margin-right: 8px; vertical-align: -2px; border-radius: 50%; border: 1.5px solid var(--ink); background: var(--card); }
 .dot.filed { border-color: var(--grey); background: var(--grey); }
 .mt.group { margin-top: 14px; }
@@ -365,3 +366,4 @@ html.fit .mark { padding: 14px 0 16px; }
 .grid.tx tr.gaprow td { height: 30px; padding: 0; background: var(--card) !important; background-image: none !important; }
 .grid.tx tr.gaprow.year td { height: 60px; }
 .grid.tx tbody tr.gaprow:hover td { background: var(--card) !important; }
+.sheet-head .chips { display: flex; flex-wrap: wrap; gap: 8px; flex-basis: 100%; }
