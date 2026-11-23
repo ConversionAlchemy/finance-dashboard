@@ -10,6 +10,9 @@ html.dark {
   --card: #1c1b19;
   --grid: #2a2926;
   --dots: #57544e;
+  --dots2: #45433f;
+  --need: #34331f;
+  --needhover: #3f3d22;
   --gtext: #3fdc4c;
   --rtext: #ff7b5c;
   --veil: rgba(0, 0, 0, 0.6);
@@ -32,6 +35,9 @@ html.dark {
   --card: #ffffff;
   --grid: #ecebe7;
   --dots: #b8b3a8;
+  --dots2: #d3cfc6;
+  --need: #ffffd6;
+  --needhover: #ffffb8;
   --veil: rgba(38, 36, 31, 0.25);
   --fyline: #c9c5bc;
   color-scheme: light;
@@ -144,15 +150,21 @@ main { padding: 12px 24px 40px; }
 .sheet-scroll { overflow: auto; max-height: calc(100dvh - var(--top-h) - 24px); padding: 0 20px 20px; background: var(--card); }
 .sheet-head:not(:empty) + .sheet-scroll { max-height: calc(100dvh - var(--top-h) - 90px); }
 .grid { border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; }
-.grid td, .grid th { height: 28px; padding: 0 12px 0 0; white-space: nowrap; text-align: left; font-weight: 400; border-bottom: 1px solid var(--hair); }
-.grid th { position: sticky; top: 0; z-index: 2; height: 40px; padding-top: 10px; background: var(--card); font-style: italic; border-bottom-color: var(--ink); }
+.grid td, .grid th { height: 30px; padding: 0 12px 0 0; white-space: nowrap; text-align: left; font-weight: 400; }
+/* rows are joined by a faint dotted line through their middle; each value hides the dots behind itself */
+.grid td { --rowbg: var(--card); background-color: var(--rowbg); background-image: radial-gradient(circle, var(--dots2) 0.6px, transparent 0.9px); background-size: 4px 4px; background-repeat: repeat-x; background-position: 0 calc(50% + 4px); }
+.grid td.nodots, .grid tr.blank td, .grid tr.title td, .grid tr.labels td { background-image: none; }
+.grid td > span, .grid td > a { padding-right: 6px; background: var(--rowbg); }
+.grid td.num > span, .grid td.num > a { padding: 0 0 0 6px; }
+.grid td > span:empty { padding: 0; }
+.grid th { position: sticky; top: 0; z-index: 2; height: 40px; padding-top: 10px; background: var(--card); font-style: italic; border-bottom: 1px solid var(--ink); }
 .grid .num { text-align: right; }
 .grid td.neg { color: var(--rtext); }
 .grid td.pos { color: var(--gtext); }
 .grid td.i { font-style: italic; }
 .grid td.s { text-decoration: line-through; color: var(--grey); }
-.grid td.y { background: var(--yellow); color: #1a1917; padding-left: 4px; }
-.grid tbody tr:hover td { background: var(--bg); }
+.grid td.y { --rowbg: var(--yellow); color: #1a1917; padding-left: 4px; }
+.grid tbody tr:hover td { --rowbg: var(--bg); }
 .grid tbody tr:hover td.y { background: var(--yellow); }
 .grid td.edit { cursor: text; }
 .grid td input { width: 100%; min-width: 80px; height: 26px; padding: 0 4px; border: 0; outline: 2px solid var(--ink); background: var(--card); }
@@ -234,48 +246,50 @@ input.inline { width: 110px; height: 24px; padding: 0 4px; border: 0; outline: 2
 #filingsBox > .more { margin-top: 12px; }
 .tasks-text { display: block; width: 100%; min-height: 120px; padding: 8px 0; border: 0; border-top: 1px solid var(--hair); background: none; color: var(--ink); font: inherit; line-height: 1.6; resize: none; overflow: hidden; }
 .tasks-text:focus { outline: 0; border-top-color: var(--ink); }
-.grid tr.flash td { background: var(--yellow) !important; color: #1a1917; }
+.grid tr.flash td { --rowbg: var(--yellow); background-color: var(--yellow) !important; color: #1a1917; }
 
 /* transactions */
+.sheet-head.tx-head .count { margin: 0 auto 0 0; }
+.colwrap { position: relative; }
+.colmenu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 190px; padding: 8px 0; background: var(--card); border: 1px solid var(--hair); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12); }
+.colmenu label { display: flex; gap: 10px; align-items: center; padding: 6px 14px; cursor: pointer; white-space: nowrap; }
+.colmenu label:hover { background: var(--bg); }
+.colmenu input { accent-color: var(--ink); width: 15px; height: 15px; margin: 0; }
 .grid.tx { width: 100%; table-layout: fixed; }
-.grid.tx .c-date { width: 104px; }
-.grid.tx .c-account { width: 130px; }
-.grid.tx .c-entity { width: 80px; }
-.grid.tx .c-merchant { width: 230px; }
-.grid.tx .c-reference { width: 240px; }
-.grid.tx .c-amount { width: 120px; }
-.grid.tx .c-usd { width: 110px; }
-.grid.tx .c-balance { width: 120px; }
-.grid.tx .c-receipt { width: 96px; padding-left: 18px; }
-.grid.tx td.c-merchant, .grid.tx td.c-reference, .grid.tx td.c-account, .grid.tx td.c-entity { overflow: hidden; text-overflow: ellipsis; }
-.grid.tx td.c-category select.cat.tag { width: 170px; max-width: 170px; field-sizing: fixed; text-overflow: ellipsis; }
-.grid.tx td.c-account select, .grid.tx td.c-entity select { width: 100%; field-sizing: fixed; }
-.grid.tx td, .grid.tx th { padding-right: 18px; }
-.grid.tx td select { field-sizing: content; }
+.grid.tx col.c-gut { width: 190px; }
+.grid.tx col.c-date { width: 108px; }
+.grid.tx col.c-account { width: 150px; }
+.grid.tx col.c-entity { width: 90px; }
+.grid.tx col.c-amount { width: 120px; }
+.grid.tx col.c-usd { width: 116px; }
+.grid.tx col.c-balance { width: 128px; }
+.grid.tx col.c-receipt { width: 96px; }
+.grid.tx col.c-category { width: 196px; }
+.grid.tx td, .grid.tx th { padding-right: 16px; overflow: hidden; text-overflow: ellipsis; }
+.grid.tx td.c-receipt, .grid.tx th.c-receipt { padding-left: 16px; }
 .grid.tx td:last-child, .grid.tx th:last-child { padding-right: 0; }
-/* year and month rows stay pinned under the header until the next one takes their place */
-.grid.tx tr.sep td { position: sticky; z-index: 1; height: auto; border-bottom: 0; background: var(--card) !important; }
-.grid.tx tr.sep.year td { top: var(--th-h, 41px); padding-top: 12px; padding-bottom: 4px; }
-.grid.tx tr.sep.month td { top: calc(var(--th-h, 41px) + var(--yr-h, 38px)); padding-top: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--hair); }
-.grid.tx tr.sep .part { margin-left: 24px; }
-.grid.tx tr.sep td.start { padding-left: 18px; }
-.grid.tx tr.sep td { overflow: hidden; text-overflow: ellipsis; }
-.grid.tx tr.sep.month > td:first-child > i:first-child { display: inline-block; min-width: 3em; }
-.grid.tx tr.sep.year > td:first-child > b { display: inline-block; min-width: 3em; }
-/* folded columns: click a heading to narrow it, click again to open it */
-.grid.tx th.fold { cursor: pointer; }
-.grid.tx th.fold:hover { color: var(--grey); }
-/* a folded column is a thin strip; its heading shows dots and opens it again */
-.grid.tx th.x, .grid.tx td.x { width: 18px; min-width: 18px; max-width: 18px; padding: 0 !important; overflow: hidden; text-align: center; color: var(--grey); }
-.grid.tx td.x { border-left: 1px dotted var(--hair); }
-.grid.tx th.x { padding-top: 10px !important; }
-.grid select.cat { max-width: 100%; }
-.grid td select.cat.tag { padding: 0 6px; background: hsl(var(--h) 70% 92%); color: #26241f; }
+/* the month column: its label and totals pinned beside its rows */
+.grid.tx td.gut { vertical-align: top; padding: 0 24px 0 0; background: var(--card) !important; overflow: visible; }
+.grid.tx th.gut { padding: 0; }
+.grid.tx .pin { position: sticky; top: var(--th-h, 41px); height: 0; overflow: visible; z-index: 1; }
+.grid.tx .pinbox { padding: 10px 0 14px; background: var(--card); white-space: normal; }
+.grid.tx .pinbox .hd { display: block; margin: 0 0 4px; }
+.grid.tx .pinbox .lead { gap: 6px; }
+.grid.tx .pinbox .gap { height: 12px; }
+.grid.tx tbody tr:first-child > td { padding-top: 0; }
+.grid.tx .pick, .grid.tx .tag { cursor: pointer; }
+.grid.tx .pick:hover { color: var(--grey); }
+.grid .tag { display: inline-block; max-width: 100%; padding: 1px 8px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; background: hsl(var(--h) 70% 92%) !important; color: #26241f; }
+html.dark .grid .tag { background: hsl(var(--h) 22% 22%) !important; color: var(--ink); }
+.grid.tx td.c-category { background-image: none; }
+.grid.tx td.c-category .tag, .grid.tx td.c-category select { width: 180px; }
+.grid td select.cat.tag { height: 26px; padding: 0 4px; field-sizing: fixed; background: hsl(var(--h) 70% 92%); color: #26241f; }
 html.dark .grid td select.cat.tag { background: hsl(var(--h) 22% 22%); color: var(--ink); }
-.grid.tx tr.need td:not(.c-category) { background: rgba(255, 255, 0, 0.16); }
-html.dark .grid.tx tr.need td:not(.c-category) { background: rgba(255, 255, 0, 0.07); }
-.grid.tx tbody tr.need:hover td:not(.c-category) { background: rgba(255, 255, 0, 0.28); }
-
+.grid.tx td.c-account select, .grid.tx td.c-entity select { width: 100%; }
+.grid.tx tr.need > td:not(.c-category):not(.gut) { --rowbg: var(--need); }
+.grid.tx tbody tr.need:hover > td:not(.c-category):not(.gut) { --rowbg: var(--needhover); }
+/* pop-up */
+.grid.txm td.clip { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 
 /* plan against actual */
 table.plan { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
