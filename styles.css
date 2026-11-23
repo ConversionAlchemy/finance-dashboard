@@ -382,3 +382,4 @@ html.fit .sheet-scroll { max-height: none !important; }
 .wf-col.link { cursor: pointer; }
 .wf-col.link:hover .wf-lab, .wf-col.link:hover .wf-lab *, .wf-col.link:hover .wf-pct { color: var(--grey); }
 .view > .sec:last-child { margin-bottom: 0; }
+.legend .sw.hatch.plan { --hatch: #00C601; }
