@@ -1025,7 +1025,7 @@ function renderAttention() {
   if (!items.length) box.append(el("p", "empty", "nothing to flag"));
   items.forEach(i => {
     const b = el("button", "item"); b.type = "button";
-    b.append(el("span", i.urgent ? "hl" : null, String(i.n)), document.createTextNode(" " + i.text));
+    b.append(el("span", null, String(i.n)), document.createTextNode(" " + i.text));
     b.onclick = i.go; box.append(b);
   });
 }
