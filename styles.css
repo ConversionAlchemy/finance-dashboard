@@ -355,3 +355,5 @@ table.plan td.editable:hover { color: var(--grey); }
 /* forecast: the table and, beside it, plan against actual as bars */
 .fc-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 3fr); gap: 48px; align-items: start; }
 @media (max-width: 1100px) { .fc-grid { grid-template-columns: minmax(0, 1fr); } }
+.chart .col .hov { display: none; }
+.chart .col:hover .hov { display: inline; }
