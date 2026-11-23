@@ -84,6 +84,15 @@ table.sum { border-collapse: collapse; width: 100%; }
 .chart .hit { cursor: pointer; }
 .chart .hit:hover { fill: rgba(38, 36, 31, 0.05); }
 #monthChart { margin-top: 22px; }
+#dates { margin-top: 22px; }
+#dates:empty { display: none; }
+.date-list { margin-top: 8px; }
+.mt.group { margin-top: 14px; }
+.detail-hd { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.seg.small { height: 26px; }
+.seg.small button { padding: 0 10px; }
+.hit { cursor: pointer; }
+.seg-part.hit:hover rect, .slice.hit:hover path { opacity: 0.8; }
 .legend { margin: 4px 0 0; }
 .legend span + span { margin-left: 16px; }
 .pie { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 22px; align-items: start; }
