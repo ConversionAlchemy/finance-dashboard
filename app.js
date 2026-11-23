@@ -3,7 +3,7 @@
 /* ---------- settings ---------- */
 const CLIENT_ID = "889111204943-edo28tmkq0e2224mg86prldvujm907cd.apps.googleusercontent.com";
 const APP_ID = "889111204943";            // google cloud project number
-const PICKER_API_KEY = "";                // google cloud > credentials > api key (restricted to the picker api)
+const PICKER_API_KEY = "AIzaSyAr6V2F-jV4Fj1sAuJVDYcEZEPGMSFhKUU";                // google cloud > credentials > api key (restricted to the picker api)
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
 const SHEETS = "https://sheets.googleapis.com/v4/spreadsheets/";
 const FILE_KEY = "ca-finance-file";
