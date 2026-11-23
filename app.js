@@ -505,7 +505,7 @@ function chartWindow() {
   if (dash.period === "fy") return { start: new Date(dash.fy + "T00:00:00"), n: 12 };
   return { start: addMonths(thisMonth, -12), n: 12 };
 }
-let subGroups = {};
+let filedRows = {}, subGroups = {};
 function renderMonthChart(rg) {
   const host = $("#monthChart"); host.className = "chart";
   const today = iso(new Date()), win = chartWindow(), start = win.start, N = win.n;
@@ -530,7 +530,7 @@ function renderMonthChart(rg) {
         + '<rect x="' + (x + bw + 2) + '" y="' + y(d.cost) + '" width="' + bw + '" height="' + (base - y(d.cost)) + '" fill="' + RED + '"/></g>'
         + (many ? (d.mi === 0 ? '<text x="' + (L + k * slot) + '" y="' + (base + 20) + '" ' + F + ">" + d.m.slice(0, 4) + "</text>" : "") : '<text x="' + x + '" y="' + (base + 20) + '" ' + F + ">" + (slot < 44 ? d.label[0] : d.label) + "</text>");
       // a dotted line where each financial year starts
-      if (k && d.mi === fyStartMonth) { const lx = L + k * slot; s += '<line x1="' + lx + '" x2="' + lx + '" y1="4" y2="' + base + '" style="stroke:var(--fyline)" stroke-dasharray="2 3"/><text x="' + (lx + 4) + '" y="14" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:var(--grey)" font-style="italic">' + fyLabel(new Date(d.m + "-01T00:00:00"), scopeYe()) + "</text>"; }
+      if (k && d.mi === fyStartMonth) { const lx = L + k * slot; s += '<line x1="' + lx + '" x2="' + lx + '" y1="4" y2="' + base + '" style="stroke:var(--fyline)" stroke-dasharray="2 3"/><text x="' + (lx + 4) + '" y="40" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:var(--grey)" font-style="italic">' + fyLabel(new Date(d.m + "-01T00:00:00"), scopeYe()) + "</text>"; }
       if (bud && slot >= 44 && d.started) { const u = bud.spend - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:' + (u < 0 ? RTEXT : GTEXT) + '">' + (u < 0 ? "+" : "−") + short(Math.abs(u)) + "</text>"; }
       else if (slot >= 44 && d.started && (d.inc || d.cost)) { const n = d.inc - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:' + (n < 0 ? RTEXT : GTEXT) + '">' + (n < 0 ? "" : "+") + short(n) + "</text>"; }
       s += '<rect class="hit" x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="245" fill="transparent" data-month="' + d.m + '" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|" + words().rev + " " + money(d.inc) + "|" + words().cost + " " + money(d.cost) + "|" + (d.inc - d.cost < 0 ? (dash.scope === "personal" ? "short " : "loss ") : words().keep + " ") + money(Math.abs(d.inc - d.cost)) + (bud ? "|budget " + money(bud.spend) + ", " + (d.cost > bud.spend ? "over by " + money(d.cost - bud.spend) : money(bud.spend - d.cost) + " under") : "")) + '"/>';
@@ -549,23 +549,35 @@ function renderMonthChart(rg) {
     };
     const byMonth = new Map();
     dated.filter(g => g.when >= fyStart && g.when <= fyEnd).forEach(g => { const m = g.when.slice(0, 7); byMonth.set(m, (byMonth.get(m) || []).concat([g])); });
-    subGroups = {};
+    subGroups = {}; filedRows = {};
     byMonth.forEach((gs, m) => { const k = (+m.slice(0, 4) - start.getFullYear()) * 12 + (+m.slice(5) - 1) - start.getMonth(); subGroups[m] = gs; s += marker(L + k * slot, gs, m); });
     if (laterGroups.length) { subGroups.later = laterGroups; s += marker(L + N * slot, laterGroups, "later"); }
+    // filings already sent: a filled ball at the month they went in
+    const ents = scopeEntities(), filedBy = new Map();
+    pastFilings().filter(f => ents.includes(f.who) && f.date >= fyStart && f.date <= fyEnd).forEach(f => { const m = f.date.slice(0, 7); filedBy.set(m, (filedBy.get(m) || []).concat([f])); });
+    filedBy.forEach((fs, m) => {
+      const k = (+m.slice(0, 4) - start.getFullYear()) * 12 + (+m.slice(5) - 1) - start.getMonth(), x = L + k * slot + (subGroups[m] ? 22 : 0);
+      filedRows["f" + m] = fs[0].row;
+      s += '<g class="sub filed hit" data-key="f' + m + '"><title>' + esc(fs.map(f => f.name + (f.period ? " " + f.period : "") + (ents.length > 1 ? " (" + f.who + ")" : "") + "\nfiled " + f.text).join("\n\n")) + '</title>'
+        + '<line x1="' + x + '" x2="' + x + '" y1="21" y2="' + base + '" style="stroke:var(--grey)" stroke-dasharray="2 3" pointer-events="none"/>'
+        + '<circle cx="' + x + '" cy="11" r="10" style="fill:var(--grey)" stroke="none"/>'
+        + '<text x="' + x + '" y="15.5" font-size="12" text-anchor="middle" font-family="PT Sans, Arial, sans-serif" style="fill:var(--card)" pointer-events="none">' + fs.length + "</text></g>";
+    });
     return s;
   });
   const lg = el("div", "legend"); lg.innerHTML = '<span><span class="sw" style="background:' + GREEN + '"></span>' + words().rev + '</span><span><span class="sw" style="background:' + RED + '"></span>' + words().cost + "</span>";
   if (bud) lg.insertAdjacentHTML("beforeend", '<span><span class="dash-key"></span>budget ' + esc(money(bud.spend)) + " a month</span>");
   if (dated.length) {
-    lg.insertAdjacentHTML("beforeend", '<span><span class="dot"></span>submit</span>');
+    lg.insertAdjacentHTML("beforeend", '<span><span class="dot"></span>to submit</span><span><span class="dot filed"></span>filed</span>');
   }
   lg.insertAdjacentHTML("beforeend", '<span class="range">' + esc(longDate(rg.from) + " – " + longDate(rg.to)) + "</span>");
   host.append(lg);
   host.querySelectorAll("g.sub").forEach(g => g.addEventListener("click", e => {
     e.stopPropagation();
-    const k = g.dataset.key, gs = subGroups[k] || [];
-    dash.filingsPick = { label: k === "later" ? "after " + longDate(fyEnd) : MONTHS[+k.slice(5) - 1] + " " + k.slice(0, 4), names: gs.flatMap(x => x.items.map(i => i.name)) };
-    renderFilings();
+    const k = g.dataset.key;
+    if (k in filedRows) return openFiling(filedRows[k]);
+    const gs = subGroups[k] || [], first = gs[0] && gs[0].items[0];
+    if (first) openFiling(first.row);
   }));
   host.querySelectorAll("rect.hit").forEach(b => b.addEventListener("click", () => { dash.month = dash.month === b.dataset.month ? null : b.dataset.month; renderDashboard(); }));
 }
@@ -698,6 +710,24 @@ function renderCash(rg) {
 }
 
 
+/* filings already sent, from the status tables on the filings tab (one per company): a marker at the month each went in */
+function pastFilings() {
+  const t = data.filings; if (!t) return [];
+  const rows = t.display, out = [], MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+  for (let i = 0; i < rows.length; i++) {
+    const r = (rows[i] || []).map(lc), c = r.indexOf("filing");
+    if (c < 0 || r[c + 2] !== "submitted" || r[c + 3] !== "status") continue;
+    const title = lc(((rows[i - 1] || [])[c]) || ""), who = /irish/.test(title) ? "ie ltd" : /uk/.test(title) ? "uk ltd" : /personal|self/.test(title) ? "personal" : "";
+    for (let j = i + 1; j < rows.length; j++) {
+      const x = (rows[j] || []).map(lc); if (!x[c]) break;
+      const sub = x[c + 2] || "", m = /^(?:paid )?(?:(\d{1,2}) )?([a-z]{3}) (\d{4})$/.exec(sub);
+      if (!m || !MON[m[2]] || x[c + 3] === "later") continue;
+      const date = m[3] + "-" + String(MON[m[2]]).padStart(2, "0") + "-" + String(m[1] || 1).padStart(2, "0");
+      out.push({ row: j, name: x[c], period: x[c + 1], who, date, text: sub });
+    }
+  }
+  return out;
+}
 /* filing dates from the filings tab: a dot at each target date (7 days after the window opens) */
 function filingDates() {
   const t = data.filings; if (!t) return [];
@@ -739,9 +769,8 @@ function submitText(f, today = iso(new Date())) { const d = f.target || f.deadli
 function filingYear(f) { return +((/(\d{4})/.exec(f.name) || [])[1]) || 0; }
 function filingLive(f, today = iso(new Date())) { return f.status !== "done" && f.status !== "filed, to confirm" && filingYear(f) <= +today.slice(0, 4); }
 function renderFilings() {
-  const box = $("#filingsBox"), today = iso(new Date()), pick = dash.filingsPick, y = today.slice(0, 4);
+  const box = $("#filingsBox"), today = iso(new Date()), pick = null, y = today.slice(0, 4);
   box.replaceChildren(el("b", "hd", "filings"));
-  if (pick) { const chip = el("button", "box chip", pick.label); chip.type = "button"; chip.onclick = () => { dash.filingsPick = null; renderFilings(); }; box.append(chip); }
   const items = filingDates().filter(f => pick ? pick.names.includes(f.name) && f.status !== "done" : filingLive(f, today));
   const when = f => f.target || f.deadline || "";
   const sortKey = f => when(f) ? (when(f) < today ? "0" : "1" + when(f)) : "2";
