@@ -1249,7 +1249,7 @@ function txMatches(f, tab) {
     && (!q || (r.merchant + " " + lc((tab.display[r.i] || [])[c.reference]) + " " + r.category + " " + r.date).includes(q))).reverse();
 }
 /* the transactions behind anything you click on the dashboard, in a pop-up you can edit and copy from */
-let txmDirty = false;
+let txmDirty = false, moreModal = null;
 function openTx(f, title) {
   const rg = range(), ents = scopeEntities(), tab = tabByName("transactions");
   const filt = Object.assign({}, TX_CLEAR, { entity: ents.length === 1 ? ents[0] : "", entities: ents.length > 1 ? ents : null, from: rg.from, to: rg.to }, f);
@@ -1257,18 +1257,11 @@ function openTx(f, title) {
   const cats = [...new Set(data.cats.concat(data.rows.map(r => r.category)))].filter(Boolean).sort();
   $("#txmTitle").textContent = title;
   $("#txmCount").textContent = list.length.toLocaleString("en-GB") + (list.length === 1 ? " transaction" : " transactions") + (filt.from ? ", " + longDate(filt.from) + " – " + longDate(filt.to) : "");
-  const grid = $("#txmGrid"); grid.innerHTML = "";
-  const thead = el("thead"), hr = el("tr");
-  [["date"], ["account"], ["merchant"], ["reference"], ["amount", "num"], ["category"]].forEach(([t, k]) => hr.append(el("th", k || null, t))); thead.append(hr);
-  const body = el("tbody");
-  list.slice(0, 500).forEach(r => {
-    const tr = el("tr"), d = tab.display[r.i] || [];
-    tr.append(txt(null, r.date), txt(null, r.account), txt("clip", d[c.merchant] || ""), txt("clip", d[c.reference] || ""), txt("num " + (r.amount < 0 ? "neg" : "pos"), (r.amount < 0 ? "-" : "") + (SYMBOL[r.cur] || r.cur + " ") + Math.abs(r.amount).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })));
-    const td = el("td");
-    pickCell(td, r.category, catName, () => catOptions(r, cats), v => { txmDirty = true; writeCell(tab, r.i, c.category, v).then(() => buildModel()); }, true);
-    tr.append(td); body.append(tr);
-  });
-  grid.append(thead, body);
+  const grid = $("#txmGrid"); grid.innerHTML = ""; if (moreModal) moreModal.disconnect();
+  const real = data.rows.filter(r => !r.synthetic), entities = [...new Set(real.map(r => r.entity))].sort(), accounts = [...new Set(real.map(r => r.account))].sort();
+  const host = $("#txmMore"); host.innerHTML = "";
+  $("#txModal").hidden = false;
+  moreModal = txTable({ grid, scroller: grid.closest(".modal-body"), host, tab, list, shownCols: txCols(c).filter(([n]) => !txHidden.has(n)), bal: runningBalance(filt), cats, entities, accounts });
   $("#txmCopy").onclick = () => {
     const rows = [["row", "date", "account", "entity", "merchant", "reference", "amount", "currency", "category"].join("\t")].concat(list.map(r => { const d = tab.display[r.i] || []; return [r.i + 1, r.date, r.account, r.entity, d[c.merchant] || "", d[c.reference] || "", d[c.amount] || "", r.cur, r.category].join("\t"); }));
     const txt = title + "\n" + rows.join("\n");
@@ -1401,7 +1394,7 @@ function renderTransactions(tab, c0, cols) {
   let t; search.oninput = () => { clearTimeout(t); t = setTimeout(() => { txFilter.text = search.value; draw(); }, 150); };
 
   // the columns: the optional ones are switched on and off from the columns menu, remembered between visits
-  const ALL = [["date", c.date, "date"], ["account", c.account, "pick"], ["entity", c.entity, "pick"], ["merchant", c.merchant, "text"], ["reference", c.reference, "text"], ["amount", c.amount, "amt"], ["usd", -1, "num"], ["balance", -2, "num"], ["receipt", c.receipt, "receipt"], ["category", c.category, "cat"]];
+  const ALL = txCols(c);
   const colBtn = el("button", "box cols icon"); colBtn.type = "button"; colBtn.title = "columns"; colBtn.setAttribute("aria-label", "columns");
   colBtn.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="3.5" width="15" height="13"/><line x1="7.5" y1="3.5" x2="7.5" y2="16.5"/><line x1="12.5" y1="3.5" x2="12.5" y2="16.5"/></svg>';
   const menu = el("div", "colmenu"); menu.hidden = true; menu.append(el("i", "hd", "columns"));
@@ -1429,50 +1422,58 @@ function renderTransactions(tab, c0, cols) {
   function draw() {
     const shownCols = ALL.filter(([n]) => !txHidden.has(n));
     grid.innerHTML = ""; $("#more").innerHTML = ""; if (more) more.disconnect();
-    const cg = el("colgroup"); cg.append(el("col", "c-gut")); shownCols.forEach(([n]) => cg.append(el("col", "c-" + n))); grid.append(cg);
-    const thead = el("thead"), tr = el("tr"); tr.append(el("th", "gut"));
-    shownCols.forEach(([n, , k]) => tr.append(el("th", "c-" + n + (k === "num" || k === "amt" ? " num" : ""), n === "amount" ? "original" : n)));
-    thead.append(tr); grid.append(thead);
     const list = txMatches(txFilter, tab);
     count.textContent = list.length.toLocaleString("en-GB") + (list.length === 1 ? " transaction" : " transactions");
-    const bal = runningBalance(txFilter);
-    // totals for each month and year of the rows shown, in one pass; the list runs newest first
-    const sums = new Map();
-    list.forEach(r => [r.date.slice(0, 7), r.date.slice(0, 4)].forEach(k => {
-      const t = sums.get(k) || { inc: 0, cost: 0, end: null, start: null };
-      if (isIncome(r)) t.inc += r.v; if (isCost(r)) t.cost += r.v;
-      if (bal.has(r.i)) { if (t.end == null) t.end = bal.get(r.i); t.start = bal.get(r.i) - r.v; }
-      sums.set(k, t);
-    }));
-    const body = el("tbody"); grid.append(body);
-    let shown = 0, lastM = "", lastY = "", gut = null;
-    const figs = (box, k) => { const t = sums.get(k);
-      box.append(lead("income", [el("span", t.inc ? "g" : null, money(t.inc))], { italic: true }), lead("costs", [el("span", t.cost ? "r" : null, money(t.cost))], { italic: true }));
-      if (t.start != null) box.append(lead("start", money(t.start), { italic: true }), lead("end", money(t.end), { italic: true })); };
-    const page = () => {
-      const frag = document.createDocumentFragment();
-      list.slice(shown, shown + PAGE).forEach(r => {
-        const row = txRow(tab, r, shownCols, cats, entities, accounts, bal, fmt2), m = r.date.slice(0, 7), y = r.date.slice(0, 4);
-        if (m !== lastM) {
-          // the month's label and totals sit at the left beside its rows, pinned while you scroll through it
-          gut = el("td", "gut"); gut.rowSpan = 1;
-          const pin = el("div", "pin"), box = el("div", "pinbox");
-          if (y !== lastY) { box.append(el("b", "hd", y)); figs(box, y); box.append(el("div", "gap")); lastY = y; }
-          box.append(el("b", "hd", MONTHS[+m.slice(5) - 1] + " " + y)); figs(box, m);
-          pin.append(box); gut.append(pin); row.prepend(gut); lastM = m;
-        } else gut.rowSpan++;
-        frag.append(row);
-      });
-      body.append(frag); shown += PAGE;
-      if (shown >= list.length && more) more.disconnect();
-    };
-    page();
-    grid.style.setProperty("--th-h", thead.offsetHeight + "px");
-    const sentinel = el("div"); sentinel.style.height = "1px"; $("#more").append(sentinel);
-    more = new IntersectionObserver(es => { if (es[0].isIntersecting && shown < list.length) page(); }, { root: $("#sheetScroll"), rootMargin: "600px" });
-    more.observe(sentinel);
+    more = txTable({ grid, scroller: $("#sheetScroll"), host: $("#more"), tab, list, shownCols, bal: runningBalance(txFilter), cats, entities, accounts });
   }
   draw();
+}
+// the transactions table, shared by the transactions tab and the pop-up: a month column on the left with its totals
+// pinned beside its rows, the chosen columns, and rows loaded a page at a time as you scroll
+const TX_PAGE = 120, TX_FMT2 = v => (v < 0 ? "-" : "") + Math.abs(v).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function txCols(c) { return [["date", c.date, "date"], ["account", c.account, "pick"], ["entity", c.entity, "pick"], ["merchant", c.merchant, "text"], ["reference", c.reference, "text"], ["amount", c.amount, "amt"], ["usd", -1, "num"], ["balance", -2, "num"], ["receipt", c.receipt, "receipt"], ["category", c.category, "cat"]]; }
+function txTable({ grid, scroller, host, tab, list, shownCols, bal, cats, entities, accounts }) {
+  grid.className = "grid tx"; let obs = null;
+    const cg = el("colgroup"); cg.append(el("col", "c-gut")); shownCols.forEach(([n]) => cg.append(el("col", "c-" + n))); grid.append(cg);
+  const thead = el("thead"), tr = el("tr"); tr.append(el("th", "gut"));
+  shownCols.forEach(([n, , k]) => tr.append(el("th", "c-" + n + (k === "num" || k === "amt" ? " num" : ""), n === "amount" ? "original" : n)));
+  thead.append(tr); grid.append(thead);
+  // totals for each month and year of the rows shown, in one pass; the list runs newest first
+  const sums = new Map();
+  list.forEach(r => [r.date.slice(0, 7), r.date.slice(0, 4)].forEach(k => {
+    const t = sums.get(k) || { inc: 0, cost: 0, end: null, start: null };
+    if (isIncome(r)) t.inc += r.v; if (isCost(r)) t.cost += r.v;
+    if (bal.has(r.i)) { if (t.end == null) t.end = bal.get(r.i); t.start = bal.get(r.i) - r.v; }
+    sums.set(k, t);
+  }));
+  const body = el("tbody"); grid.append(body);
+  let shown = 0, lastM = "", lastY = "", gut = null;
+  const figs = (box, k) => { const t = sums.get(k);
+    box.append(lead("income", [el("span", t.inc ? "g" : null, money(t.inc))], { italic: true }), lead("costs", [el("span", t.cost ? "r" : null, money(t.cost))], { italic: true }));
+    if (t.start != null) box.append(lead("start", money(t.start), { italic: true }), lead("end", money(t.end), { italic: true })); };
+  const page = () => {
+    const frag = document.createDocumentFragment();
+    list.slice(shown, shown + TX_PAGE).forEach(r => {
+      const row = txRow(tab, r, shownCols, cats, entities, accounts, bal, TX_FMT2), m = r.date.slice(0, 7), y = r.date.slice(0, 4);
+      if (m !== lastM) {
+        // the month's label and totals sit at the left beside its rows, pinned while you scroll through it
+        gut = el("td", "gut"); gut.rowSpan = 1;
+        const pin = el("div", "pin"), box = el("div", "pinbox");
+        if (y !== lastY) { box.append(el("b", "hd", y)); figs(box, y); box.append(el("div", "gap")); lastY = y; }
+        box.append(el("b", "hd", MONTHS[+m.slice(5) - 1] + " " + y)); figs(box, m);
+        pin.append(box); gut.append(pin); row.prepend(gut); lastM = m;
+      } else gut.rowSpan++;
+      frag.append(row);
+    });
+    body.append(frag); shown += TX_PAGE;
+    if (shown >= list.length && obs) obs.disconnect();
+  };
+  page();
+  grid.style.setProperty("--th-h", thead.offsetHeight + "px");
+  const sentinel = el("div"); sentinel.style.height = "1px"; host.append(sentinel);
+  obs = new IntersectionObserver(es => { if (es[0].isIntersecting && shown < list.length) page(); }, { root: scroller, rootMargin: "600px" });
+  obs.observe(sentinel);
+  return obs;
 }
 // the balance after each transaction, across the accounts and entities in view (not narrowed by search or category),
 // each currency kept apart and converted at that month's rate, the same way the dashboard does it
