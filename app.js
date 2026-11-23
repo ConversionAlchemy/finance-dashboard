@@ -469,15 +469,21 @@ function renderSummary(rg) {
     [words().cost, -f.costs, "r", change(f.costs, p.costs)],
     [words().pbt, f.profit, f.profit < 0 ? "r" : "g", f.income > 0 && Math.abs(f.profit / f.income) <= 5 ? pct(f.profit / f.income) + " " + words().of : ""]
   ];
+  const bud = personal && monthlyBudget();
+  if (bud) {
+    const planned = bud.spend * monthsElapsed(rg), over = -f.costs - planned;
+    cols.push(["budget", planned, "", [el("span", over > 0.5 ? "r" : "g", over > 0.5 ? "over by " + money(over) : money(-over) + " under")]]);
+  }
   if (!personal) cols.push(["tax due (estimate)", f.tax, "r", f.taxPaid > 0.5 ? money(f.taxPaid) + " paid" : "nothing paid yet"]);
   cols.push(["cash", f.cash, f.cash < 0 ? "r" : "g", rg.kind === "all" ? "today" : change(f.cash, p.cash)]);
+  const bi = cols.findIndex(c => c[0] === "budget"); if (bi > 2) cols.splice(2, 0, cols.splice(bi, 1)[0]);
   if (personal) {
     // net worth: your cash, plus what the companies owe you on your director's loan (minus what you owe them)
     const loan = c => balance(c, r => ["director's loan", "business costs paid personally"].includes(r.category), ["ie ltd", "uk ltd", "personal"]);
     const nw = f.cash + loan(rg.to), nwp = rg.kind === "all" ? null : (p.cash || 0) + loan(prevRange(rg).to);
     cols.push(["net worth", nw, nw < 0 ? "r" : "g", nwp == null ? "cash and director's loan" : change(nw, nwp)]);
   }
-  $("#summary").replaceChildren(...cols.map(([label, v, cls, note]) => { const d = el("div", "fig"); d.append(el("i", null, label), el("span", cls, money(v)), el("span", null, note)); return d; }));
+  $("#summary").replaceChildren(...cols.map(([label, v, cls, note]) => { const d = el("div", "fig"), n = el("span"); if (Array.isArray(note)) n.append(...note); else n.textContent = note; d.append(el("i", null, label), el("span", cls || null, money(v)), n); return d; }));
 }
 
 // the months the chart shows: the financial year, everything since the start, or the 12 months up to the period picked
@@ -498,14 +504,15 @@ function renderMonthChart(rg) {
     const m = addMonths(start, k), x = { from: iso(m), to: iso(monthEnd(m)) }, rows = sel(x);
     series.push({ m: iso(m).slice(0, 7), mi: m.getMonth(), label: MONTHS[m.getMonth()], started: x.from <= today, inc: total(rows.filter(isIncome)), cost: -total(rows.filter(isCost)) });
   }
-  const max = niceMax(Math.max(1, ...series.map(s => Math.max(s.inc, s.cost))));
+  const bud = dash.scope === "personal" ? monthlyBudget() : null;
+  const max = niceMax(Math.max(1, bud ? bud.spend : 0, ...series.map(s => Math.max(s.inc, s.cost))));
   const chart = el("div");
   host.replaceChildren(chart);
   const fyStart = iso(start), fyEnd = iso(monthEnd(addMonths(start, N - 1))), fyStartMonth = scopeYe() % 12;
   const dated = upcomingFilings();
-  svgBox(chart, 250, W => {
-    const L = 40, base = 190, y = v => base - v / max * 180, slot = (W - L) / N, many = N > 18; let s = "";
-    [0, 0.25, 0.5, 0.75, 1].forEach(t => { const v = max * t; s += '<line x1="' + L + '" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" style="stroke:' + (t ? "var(--grid)" : "currentColor") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (t ? short(v) : "0") + "</text>"; });
+  svgBox(chart, 250, Wd => {
+    const L = 40, base = 190, y = v => base - v / max * 180, slot = (Wd - L) / N, many = N > 18; let s = "";
+    [0, 0.25, 0.5, 0.75, 1].forEach(t => { const v = max * t; s += '<line x1="' + L + '" x2="' + Wd + '" y1="' + y(v) + '" y2="' + y(v) + '" style="stroke:' + (t ? "var(--grid)" : "currentColor") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (t ? short(v) : "0") + "</text>"; });
     series.forEach((d, k) => {
       const x = L + k * slot + slot * 0.14, bw = slot * 0.34, on = d.m >= rg.from.slice(0, 7) && d.m <= rg.to.slice(0, 7);
       s += '<g opacity="' + (on ? 1 : 0.3) + '"><rect x="' + x + '" y="' + y(d.inc) + '" width="' + bw + '" height="' + (base - y(d.inc)) + '" fill="' + GREEN + '"/>'
@@ -513,15 +520,19 @@ function renderMonthChart(rg) {
         + (many ? (d.mi === 0 ? '<text x="' + (L + k * slot) + '" y="' + (base + 20) + '" ' + F + ">" + d.m.slice(0, 4) + "</text>" : "") : '<text x="' + x + '" y="' + (base + 20) + '" ' + F + ">" + (slot < 44 ? d.label[0] : d.label) + "</text>");
       // a dotted line where each financial year starts
       if (k && d.mi === fyStartMonth) { const lx = L + k * slot; s += '<line x1="' + lx + '" x2="' + lx + '" y1="4" y2="' + base + '" stroke="currentColor" stroke-dasharray="2 3"/><text x="' + (lx + 4) + '" y="14" ' + F + ' font-style="italic">' + fyLabel(new Date(d.m + "-01T00:00:00"), scopeYe()) + "</text>"; }
-      if (slot >= 44 && d.started && (d.inc || d.cost)) { const n = d.inc - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:' + (n < 0 ? RTEXT : GTEXT) + '">' + (n < 0 ? "" : "+") + short(n) + "</text>"; }
-      s += '<rect class="hit" x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="245" fill="transparent" data-month="' + d.m + '" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|" + words().rev + " " + money(d.inc) + "|" + words().cost + " " + money(d.cost) + "|" + (d.inc - d.cost < 0 ? (dash.scope === "personal" ? "short " : "loss ") : words().keep + " ") + money(Math.abs(d.inc - d.cost))) + '"/>';
+      if (bud && slot >= 44 && d.started) { const u = bud.spend - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:' + (u < 0 ? RTEXT : GTEXT) + '">' + (u < 0 ? "+" : "−") + short(Math.abs(u)) + "</text>"; }
+      else if (slot >= 44 && d.started && (d.inc || d.cost)) { const n = d.inc - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:' + (n < 0 ? RTEXT : GTEXT) + '">' + (n < 0 ? "" : "+") + short(n) + "</text>"; }
+      s += '<rect class="hit" x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="245" fill="transparent" data-month="' + d.m + '" data-tip="' + esc(d.label + " " + d.m.slice(0, 4) + "|" + words().rev + " " + money(d.inc) + "|" + words().cost + " " + money(d.cost) + "|" + (d.inc - d.cost < 0 ? (dash.scope === "personal" ? "short " : "loss ") : words().keep + " ") + money(Math.abs(d.inc - d.cost)) + (bud ? "|budget " + money(bud.spend) + ", " + (d.cost > bud.spend ? "over by " + money(d.cost - bud.spend) : money(bud.spend - d.cost) + " under") : "")) + '"/>';
     });
+    // your monthly spending budget as a dashed line across the chart
+    if (bud) s += '<line x1="' + L + '" x2="' + Wd + '" y1="' + y(bud.spend) + '" y2="' + y(bud.spend) + '" style="stroke:var(--rtext)" stroke-dasharray="5 4" stroke-width="1.5"/>';
     // filing targets sit on the chart's own baseline, as dots at their dates
     const xd = dstr => { const d = new Date(dstr + "T00:00:00"), k = (d.getFullYear() - start.getFullYear()) * 12 + d.getMonth() - start.getMonth(); return L + (k + (d.getDate() - 1) / monthEnd(d).getDate()) * slot; };
     dated.filter(g => g.when >= fyStart && g.when <= fyEnd).forEach(g => { const xx = xd(g.when); s += '<circle cx="' + xx + '" cy="' + base + '" r="6" fill="' + (g.soon ? "#ffff00" : "currentColor") + '" stroke="currentColor"/><rect x="' + (xx - 10) + '" y="' + (base - 10) + '" width="20" height="20" fill="transparent" data-tip="' + esc(g.tip) + '"/>'; });
     return s;
   });
   const lg = el("div", "legend"); lg.innerHTML = '<span><span class="sw" style="background:' + GREEN + '"></span>' + words().rev + '</span><span><span class="sw" style="background:' + RED + '"></span>' + words().cost + "</span>";
+  if (bud) lg.insertAdjacentHTML("beforeend", '<span><span class="dash-key"></span>budget ' + esc(money(bud.spend)) + " a month</span>");
   if (dated.length) {
     const later = dated.filter(g => g.when > fyEnd), n = later.reduce((a, g) => a + g.items.length, 0);
     lg.insertAdjacentHTML("beforeend", '<span><span class="dot"></span>filing target</span>' + (n ? '<span data-tip="' + esc(later.map(g => g.tip).join("| |")) + '">→ ' + n + " later</span>" : ""));
@@ -726,6 +737,12 @@ const FC = {
     ["spending", "transport", "transport", "money"], ["spending", "travel", "travel", "money"], ["spending", "everything else", "everything else", "money"]] }
 };
 const fc = { pick: null, sheet: false };
+// your personal budget, per month, from the budget block on the forecast tab
+function monthlyBudget() {
+  const inp = fcInputs(FC.personal); if (!inp) return null;
+  const spend = FC.personal.inputs.filter(x => x[0] === "spending").reduce((a, x) => a + ((inp[x[1]] || {}).v || 0), 0);
+  return spend > 0 ? { spend } : null;
+}
 function fcConf() { return FC[dash.mode === "personal" ? "personal" : "business"]; }
 function fcInputs(conf = fcConf()) {
   const t = tabByName("forecast"), out = {}; if (!t) return null;

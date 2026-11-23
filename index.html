@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=PT+Sans:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1795456928">
+  <link rel="stylesheet" href="styles.css?v=1795457080">
 </head>
 <body>
 
@@ -43,8 +43,7 @@
         <div class="filters">
           <b>summary</b>
           <label class="box" id="coBox"><select id="scopePick" aria-label="company"></select></label>
-          <div class="seg" id="periodPick" role="group" aria-label="period"></div>
-          <div class="seg step"><button type="button" class="prev" aria-label="previous year">‹</button><label><select id="yearPick" aria-label="year"></select></label><button type="button" class="next" aria-label="next year">›</button></div>
+          <div class="seg step" role="group" aria-label="period"><span id="periodPick" class="contents"></span><button type="button" class="prev" aria-label="previous year">‹</button><label><select id="yearPick" aria-label="year"></select></label><button type="button" class="next" aria-label="next year">›</button></div>
           <button class="box" id="monthChip" type="button" hidden></button>
           <button class="box" id="pdfButton" type="button">export</button>
         </div>
@@ -79,6 +78,6 @@
   </div>
   <div id="print" class="print"></div>
   <div class="tip" id="tip" hidden></div>
-  <script src="app.js?v=1795456928"></script>
+  <script src="app.js?v=1795457080"></script>
 </body>
 </html>
