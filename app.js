@@ -1048,26 +1048,28 @@ function renderPlanChart(lines, personal) {
   const groups = pick.map(([key, good, label]) => { const l = lines.find(x => x[1] === key && x[2] != null); return l ? { label: label || key, plan: l[2], act: l[3], good } : null; }).filter(Boolean);
   const host = $("#fcChart"), box = el("div"); host.replaceChildren(box);
   if (!groups.length) return;
-  const vals = groups.flatMap(g => [g.plan, g.act]), top = niceMax(Math.max(1, ...vals) * 1.2), bot = Math.min(0, ...vals) < 0 ? -niceMax(-Math.min(0, ...vals)) : 0;
+  const vals = groups.flatMap(g => [g.plan, g.act]), top = niceMax(Math.max(1, ...vals) * 1.1), bot = Math.min(0, ...vals) < 0 ? -niceMax(-Math.min(0, ...vals)) : 0;
   svgBox(box, 300, W => {
     const L = 44, T = 10, B = 250, y = v => B - (v - bot) / (top - bot) * (B - T), slot = (W - L) / groups.length; let s = "";
     const ticks = bot < 0 ? [bot, 0, top] : [0, top * 0.25, top * 0.5, top * 0.75, top];
     const hov = [];
-    s += '<defs><pattern id="planHatch" patternUnits="userSpaceOnUse" width="6" height="6"><path d="M0 0L6 6M6 0L0 6" style="stroke:' + GREEN + '" stroke-width="1.1"/></pattern></defs>';
+    s += '<defs><pattern id="planHatch" patternUnits="userSpaceOnUse" width="6" height="6"><path d="M0 0L6 6M6 0L0 6" style="stroke:' + GREEN + '" stroke-width="1.1"/></pattern><pattern id="planHatchR" patternUnits="userSpaceOnUse" width="6" height="6"><path d="M0 0L6 6M6 0L0 6" style="stroke:' + RED + '" stroke-width="1.1"/></pattern></defs>';
     ticks.forEach(v => { s += '<line x1="' + L + '" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" style="stroke:' + (v === 0 ? "currentColor" : "var(--grid)") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (v ? short(v) : "0") + "</text>"; });
     groups.forEach((g, k) => {
       const bw = slot * 0.3, x = L + k * slot + slot * 0.18, ok = g.good === "down" ? g.act <= g.plan : g.act >= g.plan;
       const bar = (bx, v, fill) => { const y0 = y(Math.max(0, v)), h = Math.abs(y(v) - y(0)); return '<rect x="' + bx + '" y="' + y0 + '" width="' + bw + '" height="' + h + '" style="fill:' + fill + '"/>'; };
       const actFill = g.label === "costs" || g.label === "spending" ? RED : g.act < 0 ? RED : GREEN;
-      s += bar(x, g.plan, "url(#planHatch)") + bar(x + bw + 3, g.act, actFill);
+      const spend = g.label === "costs" || g.label === "spending", planC = spend || g.plan < 0 ? RED : GREEN;
+      // the plan is the hatched twin of its actual bar: red for costs, green for money in and money left
+      s += bar(x, g.plan, planC === RED ? "url(#planHatchR)" : "url(#planHatch)") + bar(x + bw + 3, g.act, actFill);
       s += '<text x="' + (x + bw + 1.5) + '" y="' + (B + 22) + '" ' + F + ' text-anchor="middle">' + g.label + "</text>";
       s += '<text x="' + (x + bw + 1.5) + '" y="' + (B + 42) + '" font-size="14" text-anchor="middle" font-family="PT Sans, Arial, sans-serif" style="fill:' + (ok ? GTEXT : RTEXT) + '">' + (g.act - g.plan < 0 ? "−" : "+") + short(Math.abs(g.act - g.plan)) + "</text>";
       // on hover: a dot on each bar, and both figures stacked just above the pair, where nothing else is drawn
       const yTop = Math.min(y(Math.max(0, g.plan)), y(Math.max(0, g.act))), lab = (ly, c, hollow, t) => '<circle cx="' + (x + 5) + '" cy="' + ly + '" r="4" style="fill:' + (hollow ? "var(--card)" : c) + ';stroke:' + c + '" stroke-width="1.5"/><text x="' + (x + 15) + '" y="' + (ly + 4.5) + '" font-size="13" font-family="PT Sans, Arial, sans-serif" fill="currentColor">' + esc(t) + "</text>";
       hov.push('<g class="col"><rect class="spot" x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="' + (B + 4) + '" fill="transparent"/><g class="hov" pointer-events="none">'
-        + '<circle cx="' + (x + bw / 2) + '" cy="' + y(g.plan) + '" r="4.5" style="fill:var(--card);stroke:' + GREEN + '" stroke-width="2"/>'
+        + '<circle cx="' + (x + bw / 2) + '" cy="' + y(g.plan) + '" r="4.5" style="fill:var(--card);stroke:' + planC + '" stroke-width="2"/>'
         + '<circle cx="' + (x + bw * 1.5 + 3) + '" cy="' + y(g.act) + '" r="4.5" style="fill:' + actFill + ';stroke:' + actFill + '" stroke-width="2"/>'
-        + lab(yTop - 34, GREEN, true, money(g.plan)) + lab(yTop - 15, actFill, false, money(g.act)) + "</g></g>");
+        + lab(yTop - 34, planC, true, money(g.plan)) + lab(yTop - 15, actFill, false, money(g.act)) + "</g></g>");
     });
     return s + hov.join("");
   });
