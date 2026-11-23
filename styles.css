@@ -359,3 +359,6 @@ table.plan td.editable:hover { color: var(--grey); }
 .chart .col:hover .hov { display: inline; }
 html.fit, html.fit body { overflow: hidden; }
 html.fit .sheet-scroll { max-height: none !important; }
+/* on the sheet tabs the table runs nearly to the foot of the window, the watermark just below it */
+html.fit main { padding-bottom: 0; }
+html.fit .mark { padding: 14px 0 16px; }

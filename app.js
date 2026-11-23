@@ -1277,7 +1277,7 @@ function fitSheet() {
   if (!sheet) { sc.style.height = ""; return; }
   sc.style.height = "0px";
   const mark = $(".mark"), used = mark ? mark.getBoundingClientRect().bottom + scrollY : document.documentElement.scrollHeight;
-  sc.style.height = Math.max(200, Math.floor(innerHeight - used)) + "px";
+  sc.style.height = Math.max(200, Math.floor(sc.offsetHeight + innerHeight - used)) + "px";
 }
 addEventListener("resize", () => fitSheet());
 function showView(name) {
