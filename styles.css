@@ -87,7 +87,7 @@ button { cursor: pointer; }
 .tabs button:hover { color: var(--grey); }
 
 /* dashboard layout */
-main { padding: 12px 24px 40px; }
+main { padding: 12px 24px 0; }
 .dash { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 12px; }
 .filters { position: sticky; top: var(--top-h); z-index: 15; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 18px 20px 14px; background: var(--card); border-bottom: 1px solid var(--hair); }
 .filters > b { width: 130px; margin-right: 16px; }
@@ -203,7 +203,7 @@ main { padding: 12px 24px 40px; }
 .tip { position: fixed; z-index: 40; padding: 6px 9px; background: var(--ink); color: var(--card); line-height: 1.35; white-space: nowrap; pointer-events: none; }
 
 @media (max-width: 1100px) { .dash { grid-template-columns: minmax(0, 1fr); } .side-col { position: static; margin-top: 0; } .split { grid-template-columns: minmax(0, 1fr); gap: 20px; } }
-@media (max-width: 700px) { .filters { position: static; padding-left: 12px; } .fig { padding: 0 10px 0 0; border-left: 0; } .sec { grid-template-columns: minmax(0, 1fr); gap: 10px; } .top { padding: 0 12px; } main { padding: 12px; } }
+@media (max-width: 700px) { .filters { position: static; padding-left: 12px; } .fig { padding: 0 10px 0 0; border-left: 0; } .sec { grid-template-columns: minmax(0, 1fr); gap: 10px; } .top { padding: 0 12px; } main { padding: 12px 12px 0; } }
 
 /* statements, printed to pdf */
 .print { display: none; }
@@ -352,7 +352,7 @@ table.plan td.editable:hover { color: var(--grey); }
 .fc .filters #fcSheet { margin-left: 0; }
 
 /* the watermark at the foot of every screen: plain text, not a link */
-.mark { padding: 28px 0 36px; text-align: center; font-weight: 400; color: var(--grey); user-select: none; }
+.mark { padding: 14px 0 16px; text-align: center; font-weight: 400; color: var(--grey); user-select: none; }
 .legend .sw.hatch { background: repeating-linear-gradient(45deg, var(--hatch) 0 1px, transparent 1px 4px), repeating-linear-gradient(-45deg, var(--hatch) 0 1px, transparent 1px 4px); }
 .legend .ln { display: inline-block; width: 18px; margin-right: 8px; vertical-align: 4px; }
 /* forecast: the table and, beside it, plan against actual as bars */
@@ -363,8 +363,6 @@ table.plan td.editable:hover { color: var(--grey); }
 html.fit, html.fit body { overflow: hidden; }
 html.fit .sheet-scroll { max-height: none !important; }
 /* on the sheet tabs the table runs nearly to the foot of the window, the watermark just below it */
-html.fit main { padding-bottom: 0; }
-html.fit .mark { padding: 14px 0 16px; }
 .grid.tx tr.gaprow td { height: 30px; padding: 0; background: var(--card) !important; background-image: none !important; }
 .grid.tx tr.gaprow.year td { height: 60px; }
 .grid.tx tbody tr.gaprow:hover td { background: var(--card) !important; }
@@ -374,9 +372,13 @@ html.fit .mark { padding: 14px 0 16px; }
 .wf { display: flex; }
 .wf-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
 .wf-plot { position: relative; height: 220px; border-bottom: 1px solid var(--ink); }
-.wf-bar { position: absolute; left: 12%; right: 12%; }
+.wf-bar { position: absolute; left: 8px; right: 8px; }
+.wf-pct { position: absolute; top: 4px; left: 6px; white-space: nowrap; }
+.wf-pct.out { left: 8px; }
 .wf-zero { position: absolute; left: 0; right: 0; border-top: 1px dotted var(--dots); }
-.wf-lab { display: flex; flex-direction: column; align-items: center; padding: 8px 3px 0; text-align: center; }
-.wf-lab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-lab { display: flex; flex-direction: column; align-items: flex-start; padding: 8px 8px 0; text-align: left; }
+.wf-lab span { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wf-lab span.nm { white-space: normal; overflow-wrap: break-word; }
 .wf-col.link { cursor: pointer; }
-.wf-col.link:hover .wf-lab, .wf-col.link:hover .wf-lab * { color: var(--grey); }
+.wf-col.link:hover .wf-lab, .wf-col.link:hover .wf-lab *, .wf-col.link:hover .wf-pct { color: var(--grey); }
+.view > .sec:last-child { margin-bottom: 0; }

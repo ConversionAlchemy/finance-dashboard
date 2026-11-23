@@ -705,10 +705,16 @@ function colChart(cols, lo, hi) {
   cols.forEach(c => {
     const col = el("div", "wf-col" + (c.onclick ? " link" : "")), plot = el("div", "wf-plot"), bar = el("div", "wf-bar");
     const a = Math.min(c.from, c.to), z = Math.max(c.from, c.to);
-    bar.style.bottom = ((a - lo) / span * 100) + "%"; bar.style.height = Math.max(0.5, (z - a) / span * 100) + "%"; bar.style.background = c.c;
-    plot.append(bar);
+    const b = (a - lo) / span * 100, h = Math.max(0.5, (z - a) / span * 100);
+    bar.style.bottom = b + "%"; bar.style.height = h + "%"; bar.style.background = c.c;
+    // the share sits in the bar's top-left corner, or just under the bar when the bar is too short to hold it
+    const share = el("span", "wf-pct", c.pct);
+    // (a short bar standing on the baseline gets it just above instead, so it never runs into the labels)
+    if (h / 100 * 220 >= 28) bar.append(share);
+    else { share.classList.add("out"); if (b < 1) share.style.bottom = "calc(" + (b + h) + "% + 4px)", share.style.top = "auto"; else share.style.top = "calc(" + (100 - b) + "% + 4px)"; }
+    plot.append(bar); if (!bar.contains(share)) plot.append(share);
     if (lo < 0) { const zero = el("div", "wf-zero"); zero.style.bottom = (-lo / span * 100) + "%"; plot.append(zero); }
-    const lab = el("div", "wf-lab"); lab.append(el("span", "", c.pct), el("span", "", c.label), el("span", c.cls, c.value));
+    const lab = el("div", "wf-lab"); lab.append(el("span", "nm", c.label), el("span", c.cls, c.value));
     lab.title = c.label + "  " + c.value + " (" + c.pct + ")";
     col.append(plot, lab);
     if (c.onclick) col.addEventListener("click", c.onclick);
