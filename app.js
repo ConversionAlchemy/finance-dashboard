@@ -405,7 +405,7 @@ function nextPeriod(dir, fys = fyList()) {
 }
 function stepPeriod(dir) { const n = nextPeriod(dir); if (n) { Object.assign(dash, n); renderDashboard(); } }
 document.addEventListener("keydown", e => {
-  if (!data || view !== "dashboard" || e.metaKey || e.ctrlKey || e.altKey || /input|select|textarea/i.test((e.target.tagName || ""))) return;
+  if (!data || view !== "dashboard" || e.metaKey || e.ctrlKey || e.altKey || /input|select|textarea/i.test((e.target.tagName || "")) || e.target.closest("table.budget")) return;
   if (e.key === "ArrowLeft") { e.preventDefault(); stepPeriod(-1); }
   if (e.key === "ArrowRight") { e.preventDefault(); stepPeriod(1); }
 });
@@ -921,7 +921,6 @@ function renderFilings() {
    lines live on a "budget" tab in the sheet (mode, group, line, per month), one row each, added and edited here like a sheet.
    a line is compared with the category or stream of the same name; a line with no match (investments, say) is just a target. */
 const BUD_GROUPS = { business: [["revenue", "in"], ["costs", "out"]], personal: [["income", "in"], ["spending", "out"], ["saving", "save"]] };
-const bud = { tab: "budget", edit: null };
 function budgetRows() {
   const t = tabByName("budget"); if (!t) return [];
   return t.display.map((r, i) => ({ i, mode: lc((r || [])[1]), group: lc((r || [])[2]), line: lc((r || [])[3]), amount: num((r || [])[4]) })).filter(r => r.i > 2 && r.line && (r.mode === "business" || r.mode === "personal"));
@@ -978,47 +977,38 @@ async function saveBudget(lines) {
     await refreshTab(t); status("saved");
   } catch (e) { status(e.expired ? "signed out. sign in again to save." : e.message); }
 }
-function renderBudget(host) {
-  const mode = dash.mode, personal = mode === "personal", lines = budgetLines(mode).map(r => ({ group: r.group, line: r.line, amount: r.amount }));
-  const commit = () => { saveBudget(lines).then(() => renderMore()); renderMore(); };
-  const tb = el("table", "plan budget"), head = el("tr");
+/* the budget works like a sheet: click a cell to select it, type to replace it, enter or double-click to edit it,
+   enter moves down, tab moves right, arrows move, delete clears. type a name in a group's empty last row to add a line;
+   clear a line's name to remove it. every change saves to the budget tab a moment later. */
+let budLines = null, budMode = null, budSaveTimer = null;
+const budSel = { r: -1, c: 0 }, budEdit = { on: false, typed: false };
+function renderBudget() {
+  const host = $("#budgetBody"), mode = dash.mode, personal = mode === "personal";
+  if (budMode !== mode || !budLines) { budLines = budgetLines(mode).map(r => ({ group: r.group, line: r.line, amount: r.amount })); budMode = mode; budSel.r = -1; }
+  const lines = budLines, nav = [];  // nav: every selectable row in order, { line } or { add: group }
+  const tb = el("table", "plan budget"); tb.tabIndex = 0;
   const win = lastTwelve(mode), mo = d => MONTHS[+d.slice(5, 7) - 1] + " " + d.slice(0, 4);
-  ["", "per month", "normal month", "difference"].forEach((h, k) => { const th = el("th", k ? "num" : null, h); if (k === 2) th.title = "the middle month of " + mo(win.from) + " – " + mo(win.to); head.append(th); });
+  const head = el("tr"); ["", "per month", "normal month", "difference"].forEach((h, k) => { const th = el("th", k ? "num" : null, h); if (k === 2) th.title = "the middle month of " + mo(win.from) + " – " + mo(win.to); head.append(th); });
   tb.append(el("thead")); tb.tHead.append(head);
   const body = el("tbody"), sp = (cls, txt) => { const td = el("td", cls); td.append(el("span", null, txt)); return td; };
   const diffCell = (b, t, kind) => { if (t == null) return sp("num", ""); const d = kind === "in" ? t - b : b - t; return sp("num " + (Math.abs(d) < 0.5 ? "" : d < 0 ? "r" : "g"), Math.abs(d) < 0.5 ? "–" : (d < 0 ? "−" : "+") + money(Math.abs(d)).replace(/^−/, "")); };
-  // click a cell to type in it, like a sheet; enter or clicking away saves, escape cancels
-  const editable = (td, value, set, isNum) => {
-    td.classList.add("editable");
-    td.onclick = () => {
-      if (td.querySelector("input")) return;
-      const input = el("input", "inline"); input.value = value; td.replaceChildren(input); input.focus(); input.select();
-      let done = false; const finish = ok => { if (done) return; done = true; const v = isNum ? parseFloat(input.value.replace(/[^0-9.\-]/g, "")) : lc(input.value).trim(); if (ok && (isNum ? isFinite(v) : v)) { set(v); commit(); } else renderMore(); };
-      input.onkeydown = e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); }; input.onblur = () => finish(true);
-    };
-  };
   const sums = {};
   BUD_GROUPS[mode].forEach(([g, kind]) => {
     const mine = lines.filter(r => r.group === g), ts = mine.map(r => typical(kind, r.line));
-    const bt = mine.reduce((a, r) => a + r.amount, 0), tt = ts.reduce((a, t) => a + (t || 0), 0); sums[g] = { b: bt, t: tt, kind };
+    const bt = mine.reduce((a, r) => a + r.amount, 0), tt = ts.reduce((a, t) => a + (t || 0), 0); sums[g] = { b: bt, t: tt };
     // the group's difference only counts lines that have a normal month to compare with
     const bm = mine.reduce((a, r, k) => a + (ts[k] == null ? 0 : r.amount), 0), has = ts.some(t => t != null);
     const hr = el("tr", "head line"); hr.append(sp(null, g), sp("num", money(bt)), sp("num", has ? money(tt) : ""), diffCell(bm, has ? tt : null, kind)); body.append(hr);
     mine.forEach((r, k) => {
-      const tr = el("tr", "line"), name = sp(null, r.line), amt = sp("num", money(r.amount));
-      editable(name, r.line, v => { r.line = v; }, false); editable(amt, String(r.amount), v => { r.amount = v; }, true);
-      const x = el("button", "del", "×"); x.type = "button"; x.title = "remove " + r.line; x.onclick = e => { e.stopPropagation(); lines.splice(lines.indexOf(r), 1); commit(); };
-      name.append(x);
+      const tr = el("tr", "line cells"); tr.dataset.r = nav.length; nav.push({ line: r, kind });
+      const name = sp("cell", r.line), amt = sp("num cell", money(r.amount)); name.dataset.c = 0; amt.dataset.c = 1;
       tr.append(name, amt, sp("num", ts[k] == null ? "" : money(ts[k])), diffCell(r.amount, ts[k], kind)); body.append(tr);
     });
-    // a new line: type its name; it compares itself with the category or stream of that name, if there is one
-    const add = el("tr", "add"), td = el("td"); td.colSpan = 4; const b = el("button", "add-line", "add line"); b.type = "button";
-    b.onclick = () => { const input = el("input", "inline"); input.placeholder = "name"; td.replaceChildren(input); input.focus();
-      let done = false; const finish = ok => { if (done) return; done = true; const v = lc(input.value).trim(); if (ok && v) { const t = typical(kind, v); lines.push({ group: g, line: v, amount: t ? Math.round(t / 10) * 10 : 0 }); commit(); } else renderMore(); };
-      input.onkeydown = e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); }; input.onblur = () => finish(true); };
-    td.append(b); add.append(td); body.append(add);
+    // the empty row at the bottom of each group: type a name in it to add a line
+    const tr = el("tr", "cells blank"); tr.dataset.r = nav.length; nav.push({ add: g, kind });
+    const name = el("td", "cell"); name.dataset.c = 0; const amt = el("td", "num cell"); amt.dataset.c = 1;
+    tr.append(name, amt, el("td"), el("td")); body.append(tr);
   });
-  // the bottom line
   const res = (label, b, t, good) => { const tr = el("tr", "head line"); tr.append(sp(null, label), sp("num " + (b < 0 ? "r" : ""), money(b)), sp("num", t == null ? "" : money(t)), t == null ? sp("num", "") : diffCell(b, t, good)); body.append(tr); };
   if (personal) {
     const s = sums, needB = s.spending.b + s.saving.b, needT = s.spending.t + s.saving.t;
@@ -1026,15 +1016,74 @@ function renderBudget(host) {
     // what the company needs to pay you: everything you spend and put aside, less income from anywhere else
     const other = lines.filter(r => r.group === "income" && !/salary|dividend|director/.test(r.line)).reduce((a, r) => a + r.amount, 0);
     res("pay yourself", needB - other, null);
-  } else {
-    res("profit", sums.revenue.b - sums.costs.b, sums.revenue.t - sums.costs.t, "in");
-  }
+  } else res("profit", sums.revenue.b - sums.costs.b, sums.revenue.t - sums.costs.t, "in");
   tb.append(body);
   host.replaceChildren(tb);
+
+  const cellAt = (r, c) => tb.querySelector('tr[data-r="' + r + '"] td[data-c="' + c + '"]');
+  const paint = () => { tb.querySelectorAll("td.sel").forEach(td => td.classList.remove("sel")); const td = cellAt(budSel.r, budSel.c); if (td) td.classList.add("sel"); };
+  const select = (r, c) => { budSel.r = Math.max(0, Math.min(nav.length - 1, r)); budSel.c = Math.max(0, Math.min(1, c)); paint(); };
+  const raw = (n, c) => n.add ? "" : c === 0 ? n.line.line : String(n.line.amount);
+  const save = () => { clearTimeout(budSaveTimer); budSaveTimer = setTimeout(() => saveBudget(budLines), 600); };
+  const commit = (n, c, v) => {
+    if (c === 0) {
+      const name = lc(v).trim();
+      if (n.add) { if (!name) return false; const t = typical(n.kind, name); lines.splice(lines.reduce((at, r, i) => r.group === n.add ? i + 1 : at, lines.length), 0, { group: n.add, line: name, amount: t ? Math.round(t / 10) * 10 : 0 }); }
+      else if (!name) lines.splice(lines.indexOf(n.line), 1);
+      else if (name === n.line.line) return false; else n.line.line = name;
+    } else {
+      const x = parseFloat(String(v).replace(/[^0-9.\-]/g, "")), amt = isFinite(x) ? Math.round(x * 100) / 100 : 0;
+      if (n.add) { if (!amt) return false; lines.splice(lines.reduce((at, r, i) => r.group === n.add ? i + 1 : at, lines.length), 0, { group: n.add, line: "new line", amount: amt }); }
+      else if (amt === n.line.amount) return false; else n.line.amount = amt;
+    }
+    save(); return true;
+  };
+  // editing happens in an input laid over the cell, aligned like the cell: names left, amounts right
+  const edit = (initial) => {
+    const td = cellAt(budSel.r, budSel.c), n = nav[budSel.r]; if (!td || !n) return;
+    budEdit.on = true; budEdit.typed = initial != null;
+    const input = el("input", "cell-in" + (budSel.c ? " num" : "")); input.value = initial != null ? initial : raw(n, budSel.c);
+    if (budSel.c) input.inputMode = "decimal";
+    td.replaceChildren(input); input.focus();
+    if (initial == null) input.setSelectionRange(input.value.length, input.value.length);
+    let done = false;
+    const finish = (ok, move) => {
+      if (done) return; done = true; budEdit.on = false;
+      const changed = ok && commit(n, budSel.c, input.value); void changed;
+      if (move) select(budSel.r + move[0], budSel.c + move[1]);
+      renderBudget(); const t2 = $("#budgetBody table"); if (t2 && (move || changed || ok)) t2.focus();
+    };
+    input.onkeydown = e => {
+      if (e.key === "Enter") { e.preventDefault(); finish(true, [1, 0]); }
+      else if (e.key === "Tab") { e.preventDefault(); finish(true, e.shiftKey ? [0, -1] : [0, 1]); }
+      else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+      else if (budEdit.typed && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); finish(true, [e.key === "ArrowDown" ? 1 : -1, 0]); }
+      e.stopPropagation();
+    };
+    input.onblur = () => finish(true);
+  };
+  tb.onmousedown = e => {
+    const td = e.target.closest("td.cell"); if (!td || e.target.tagName === "INPUT") return;
+    e.preventDefault(); tb.focus(); select(+td.parentNode.dataset.r, +td.dataset.c);
+  };
+  tb.ondblclick = e => { const td = e.target.closest("td.cell"); if (td && e.target.tagName !== "INPUT") edit(); };
+  tb.onkeydown = e => {
+    if (budEdit.on || budSel.r < 0) return;
+    const k = e.key;
+    if (k === "ArrowDown") select(budSel.r + 1, budSel.c); else if (k === "ArrowUp") select(budSel.r - 1, budSel.c);
+    else if (k === "ArrowRight" || (k === "Tab" && !e.shiftKey)) select(budSel.r, budSel.c + 1); else if (k === "ArrowLeft" || (k === "Tab" && e.shiftKey)) select(budSel.r, budSel.c - 1);
+    else if (k === "Enter" || k === "F2") edit();
+    else if (k === "Delete" || k === "Backspace") { const n = nav[budSel.r]; if (n && !n.add && commit(n, budSel.c, budSel.c ? "0" : "")) renderBudget(); }
+    else if (k.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) { edit(k); }
+    else return;
+    e.preventDefault(); e.stopPropagation();
+  };
+  tb.onblur = () => { if (!budEdit.on) setTimeout(() => { if (!budEdit.on && document.activeElement !== $("#budgetBody table")) { budSel.r = -1; paint(); } }, 0); };
+  paint();
 }
 
 /* ---------- filings, in full: what's coming up and what's gone in ---------- */
-function renderFilingList(host) {
+function renderFilingList() {
   const today = iso(new Date()), when = f => f.target || f.deadline || "";
   const up = filingDates().filter(f => f.status !== "done").sort((a, b) => (when(a) || "9") < (when(b) || "9") ? -1 : 1);
   const done = pastFilings().sort((a, b) => a.date < b.date ? 1 : -1);
@@ -1042,20 +1091,15 @@ function renderFilingList(host) {
   const col = (title, rows) => { const d = el("div", "pick"); d.append(el("i", "mt", title), ...rows); if (!rows.length) d.append(el("p", "empty", "nothing")); return d; };
   const upRows = up.map(f => { const d = when(f), late = d && d < today; const r = lead(f.name + who(f.who), d ? (late ? "now" : longDate(d)) : f.status, { cls: "filing" + (late ? " late" : "") }); r.dataset.row = "u" + f.row; r.title = [submitText(f, today), f.deadline ? "due " + longDate(f.deadline) : "", f.notes].filter(Boolean).join("\n"); return r; });
   const doneRows = done.map(f => { const r = lead(f.name + (f.period ? " " + f.period : "") + who(f.who), f.text, { cls: "filing" }); r.dataset.row = "d" + f.row; return r; });
-  const g = el("div", "split"); g.append(col("coming up", upRows), col("filed", doneRows)); host.replaceChildren(g);
+  const g = el("div", "split"); g.append(col("coming up", upRows), col("filed", doneRows)); $("#filingList").replaceChildren(g);
 }
-// a filing clicked anywhere opens the filings tab at that row
+// a filing clicked anywhere scrolls to it in the filings section
 function openFiling(row) {
-  bud.tab = "filings"; if (view !== "dashboard") showView("dashboard"); else renderMore();
-  const r = $('#moreBody [data-row="u' + row + '"], #moreBody [data-row="d' + row + '"]'); if (!r) return;
+  if (view !== "dashboard") showView("dashboard");
+  const r = $('#filingList [data-row="u' + row + '"], #filingList [data-row="d' + row + '"]'); if (!r) return;
   r.scrollIntoView({ block: "center" }); r.classList.add("flash"); setTimeout(() => r.classList.remove("flash"), 2500);
 }
-function renderMore() {
-  const pick = $("#morePick"); pick.innerHTML = "";
-  [["budget", "budget"], ["filings", "filings"]].forEach(([k, l]) => { const b = el("button", null, l); b.type = "button"; b.setAttribute("aria-pressed", bud.tab === k); b.onclick = () => { bud.tab = k; renderMore(); }; pick.append(b); });
-  $("#moreTitle").textContent = bud.tab;
-  if (bud.tab === "filings") renderFilingList($("#moreBody")); else renderBudget($("#moreBody"));
-}
+function renderMore() { renderBudget(); renderFilingList(); }
 
 /* ---------- needs attention ---------- */
 function openTasks() {

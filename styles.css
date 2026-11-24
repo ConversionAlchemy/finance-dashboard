@@ -389,17 +389,15 @@ html.fit .sheet-scroll { max-height: none !important; }
 .dash-main .filters > b { flex: 1; margin-right: 0; }
 .filters #pdfButton { margin-left: 0; }
 
-/* budget and filings, in tabs at the bottom of the dashboard */
-.sec.more #morePick { margin-bottom: 18px; }
-#moreBody > .mt { display: block; margin-bottom: 8px; }
-table.budget { width: 100%; }
-table.budget td.editable { cursor: text; }
-table.budget td.editable:hover span { color: var(--grey); }
-table.budget .del { margin-left: 8px; padding: 0 4px; border: 0; background: none; color: var(--grey); visibility: hidden; cursor: pointer; }
-table.budget tr:hover .del { visibility: visible; }
-table.budget .del:hover { color: var(--rtext); }
-table.budget tr.add td { padding: 2px 0 14px; }
-table.budget .add-line { padding: 0; border: 0; background: none; color: var(--grey); font-style: italic; cursor: pointer; }
-table.budget .add-line:hover { color: var(--ink); }
-table.budget input.inline { width: 100%; max-width: 260px; }
-#moreBody .lead.flash { background: var(--need); }
+/* budget and filings, at the bottom of the dashboard */
+table.budget { width: 100%; outline: none; }
+table.budget td.cell { position: relative; cursor: default; }
+table.budget tr.cells td.cell:hover > span { color: var(--grey); }
+table.budget td.cell.sel { box-shadow: inset 0 0 0 2px var(--ink); }
+table.budget td.cell.sel > span { background: transparent; }
+table.budget tr.blank td { height: 30px; background-image: none; }
+table.budget td.cell:has(> input) { padding-top: 0; padding-bottom: 0; box-shadow: none; }
+table.budget input.cell-in { display: block; box-sizing: border-box; width: 100%; height: 24px; margin: 0; padding: 0 4px; border: 0; outline: 2px solid var(--ink); outline-offset: -2px; background: var(--card); font: inherit; color: var(--ink); text-align: left; }
+table.budget input.cell-in.num { text-align: right; }
+#filingList .lead.flash { background: var(--need); }
+table.budget tr.blank td.cell:hover { background-color: var(--soft); }
