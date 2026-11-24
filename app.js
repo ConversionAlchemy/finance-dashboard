@@ -405,7 +405,7 @@ function nextPeriod(dir, fys = fyList()) {
 }
 function stepPeriod(dir) { const n = nextPeriod(dir); if (n) { Object.assign(dash, n); renderDashboard(); } }
 document.addEventListener("keydown", e => {
-  if (!data || view !== "dashboard" || e.metaKey || e.ctrlKey || e.altKey || /input|select|textarea/i.test((e.target.tagName || "")) || e.target.closest("table.budget")) return;
+  if (!data || view !== "dashboard" || e.metaKey || e.ctrlKey || e.altKey || /input|select|textarea/i.test((e.target.tagName || "")) || e.target.closest("table.grid-sheet")) return;
   if (e.key === "ArrowLeft") { e.preventDefault(); stepPeriod(-1); }
   if (e.key === "ArrowRight") { e.preventDefault(); stepPeriod(1); }
 });
@@ -836,25 +836,8 @@ function renderCash(rg) {
 
 
 /* filings already sent, from the status tables on the filings tab (one per company): a marker at the month each went in */
-function pastFilings() {
-  const t = data.filings; if (!t) return [];
-  const rows = t.display, out = [], MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
-  for (let i = 0; i < rows.length; i++) {
-    const r = (rows[i] || []).map(lc), c = r.indexOf("filing");
-    if (c < 0 || r[c + 2] !== "submitted" || r[c + 3] !== "status") continue;
-    const title = lc(((rows[i - 1] || [])[c]) || ""), who = /irish/.test(title) ? "ie ltd" : /uk/.test(title) ? "uk ltd" : /personal|self/.test(title) ? "personal" : "";
-    for (let j = i + 1; j < rows.length; j++) {
-      const x = (rows[j] || []).map(lc); if (!x[c]) break;
-      const sub = x[c + 2] || "", m = /^(?:paid )?(?:(\d{1,2}) )?([a-z]{3}) (\d{4})$/.exec(sub);
-      if (!m || !MON[m[2]] || x[c + 3] === "later") continue;
-      const date = m[3] + "-" + String(MON[m[2]]).padStart(2, "0") + "-" + String(m[1] || 1).padStart(2, "0");
-      out.push({ row: j, name: x[c], period: x[c + 1], who, date, text: sub });
-    }
-  }
-  return out;
-}
 /* filing dates from the filings tab: a dot at each target date (7 days after the window opens) */
-function filingDates() {
+function filingDatesOld() {
   const t = data.filings; if (!t) return [];
   const rows = t.display, out = [];
   for (let i = 0; i < rows.length; i++) {
@@ -977,126 +960,240 @@ async function saveBudget(lines) {
     await refreshTab(t); status("saved");
   } catch (e) { status(e.expired ? "signed out. sign in again to save." : e.message); }
 }
-/* the budget works like a sheet: click a cell to select it, type to replace it, enter or double-click to edit it,
-   enter moves down, tab moves right, arrows move, delete clears. type a name in a group's empty last row to add a line;
-   clear a line's name to remove it. every change saves to the budget tab a moment later. */
-let budLines = null, budMode = null, budSaveTimer = null;
-const budSel = { r: -1, c: 0 }, budEdit = { on: false, typed: false };
-function renderBudget() {
-  const host = $("#budgetBody"), mode = dash.mode, personal = mode === "personal";
-  if (budMode !== mode || !budLines) { budLines = budgetLines(mode).map(r => ({ group: r.group, line: r.line, amount: r.amount })); budMode = mode; budSel.r = -1; }
-  const lines = budLines, nav = [];  // nav: every selectable row in order, { line } or { add: group }
-  const tb = el("table", "plan budget"); tb.tabIndex = 0;
-  const win = lastTwelve(mode), mo = d => MONTHS[+d.slice(5, 7) - 1] + " " + d.slice(0, 4);
-  const head = el("tr"); ["", "per month", "normal month", "difference"].forEach((h, k) => { const th = el("th", k ? "num" : null, h); if (k === 2) th.title = "the middle month of " + mo(win.from) + " – " + mo(win.to); head.append(th); });
+/* ---------- a table that works like a sheet ----------
+   click a cell to select it, type to replace it, enter or double-click to edit it; enter moves down, tab moves right,
+   arrows move, delete clears, escape cancels. each group ends in an empty row: type in it to add a row.
+   clearing a row's first cell removes the row. o.cols: [{ label, num, edit, show(row), raw(row), set(row, v) }],
+   o.groups: [{ label, rows, head: [cells after the label], add(colIndex, value) }], o.after: [[label, ...cells]],
+   o.state keeps the selection between renders, o.changed() runs after any edit, o.render() redraws. */
+function sheetGrid(o) {
+  const st = o.state, tb = el("table", "plan grid-sheet " + (o.cls || "")); tb.tabIndex = 0;
+  const editCols = o.cols.map((c, k) => c.edit ? k : -1).filter(k => k >= 0), nav = [];
+  const head = el("tr"); o.cols.forEach(c => { const th = el("th", c.num ? "num" : null, c.label); if (c.title) th.title = c.title; head.append(th); });
   tb.append(el("thead")); tb.tHead.append(head);
-  const body = el("tbody"), sp = (cls, txt) => { const td = el("td", cls); td.append(el("span", null, txt)); return td; };
-  const diffCell = (b, t, kind) => { if (t == null) return sp("num", ""); const d = kind === "in" ? t - b : b - t; return sp("num " + (Math.abs(d) < 0.5 ? "" : d < 0 ? "r" : "g"), Math.abs(d) < 0.5 ? "–" : (d < 0 ? "−" : "+") + money(Math.abs(d)).replace(/^−/, "")); };
-  const sums = {};
-  BUD_GROUPS[mode].forEach(([g, kind]) => {
-    const mine = lines.filter(r => r.group === g), ts = mine.map(r => typical(kind, r.line));
-    const bt = mine.reduce((a, r) => a + r.amount, 0), tt = ts.reduce((a, t) => a + (t || 0), 0); sums[g] = { b: bt, t: tt };
-    // the group's difference only counts lines that have a normal month to compare with
-    const bm = mine.reduce((a, r, k) => a + (ts[k] == null ? 0 : r.amount), 0), has = ts.some(t => t != null);
-    const hr = el("tr", "head line"); hr.append(sp(null, g), sp("num", money(bt)), sp("num", has ? money(tt) : ""), diffCell(bm, has ? tt : null, kind)); body.append(hr);
-    mine.forEach((r, k) => {
-      const tr = el("tr", "line cells"); tr.dataset.r = nav.length; nav.push({ line: r, kind });
-      const name = sp("cell", r.line), amt = sp("num cell", money(r.amount)); name.dataset.c = 0; amt.dataset.c = 1;
-      tr.append(name, amt, sp("num", ts[k] == null ? "" : money(ts[k])), diffCell(r.amount, ts[k], kind)); body.append(tr);
+  const body = el("tbody");
+  // a cell's value can be text, or { t, cls } for coloured text
+  const cell = (c, v, extra) => { const td = el("td", [c && c.num ? "num" : "", extra || "", v && v.cls ? v.cls : ""].filter(Boolean).join(" ") || null); td.append(el("span", null, v && v.t != null ? v.t : v == null ? "" : String(v))); return td; };
+  o.groups.forEach(g => {
+    const hr = el("tr", "head line"); hr.append(cell(null, g.label));
+    o.cols.slice(1).forEach((c, k) => hr.append(cell(c, (g.head || [])[k])));
+    body.append(hr);
+    g.rows.forEach(r => {
+      const tr = el("tr", "line cells" + (o.rowCls && o.rowCls(r) ? " " + o.rowCls(r) : "")); tr.dataset.r = nav.length; nav.push({ row: r, g });
+      if (o.rowId) tr.dataset.row = o.rowId(r);
+      if (o.rowTitle && o.rowTitle(r)) tr.title = o.rowTitle(r);
+      o.cols.forEach((c, k) => { const td = cell(c, c.show(r), c.edit ? "cell" : ""); if (c.edit) td.dataset.c = k; tr.append(td); });
+      body.append(tr);
     });
-    // the empty row at the bottom of each group: type a name in it to add a line
-    const tr = el("tr", "cells blank"); tr.dataset.r = nav.length; nav.push({ add: g, kind });
-    const name = el("td", "cell"); name.dataset.c = 0; const amt = el("td", "num cell"); amt.dataset.c = 1;
-    tr.append(name, amt, el("td"), el("td")); body.append(tr);
+    if (g.add) {
+      const tr = el("tr", "cells blank"); tr.dataset.r = nav.length; nav.push({ add: g });
+      o.cols.forEach((c, k) => { const td = el("td", [c.num ? "num" : "", c.edit ? "cell" : ""].filter(Boolean).join(" ") || null); if (c.edit) td.dataset.c = k; tr.append(td); });
+      body.append(tr);
+    }
   });
-  const res = (label, b, t, good) => { const tr = el("tr", "head line"); tr.append(sp(null, label), sp("num " + (b < 0 ? "r" : ""), money(b)), sp("num", t == null ? "" : money(t)), t == null ? sp("num", "") : diffCell(b, t, good)); body.append(tr); };
-  if (personal) {
-    const s = sums, needB = s.spending.b + s.saving.b, needT = s.spending.t + s.saving.t;
-    res("left over", s.income.b - needB, s.income.t - needT, "in");
-    // what the company needs to pay you: everything you spend and put aside, less income from anywhere else
-    const other = lines.filter(r => r.group === "income" && !/salary|dividend|director/.test(r.line)).reduce((a, r) => a + r.amount, 0);
-    res("pay yourself", needB - other, null);
-  } else res("profit", sums.revenue.b - sums.costs.b, sums.revenue.t - sums.costs.t, "in");
+  (o.after || []).forEach(a => { const tr = el("tr", "head line"); a.forEach((v, k) => tr.append(cell(k ? o.cols[k] : null, v))); body.append(tr); });
   tb.append(body);
-  host.replaceChildren(tb);
 
   const cellAt = (r, c) => tb.querySelector('tr[data-r="' + r + '"] td[data-c="' + c + '"]');
-  const paint = () => { tb.querySelectorAll("td.sel").forEach(td => td.classList.remove("sel")); const td = cellAt(budSel.r, budSel.c); if (td) td.classList.add("sel"); };
-  const select = (r, c) => { budSel.r = Math.max(0, Math.min(nav.length - 1, r)); budSel.c = Math.max(0, Math.min(1, c)); paint(); };
-  const raw = (n, c) => n.add ? "" : c === 0 ? n.line.line : String(n.line.amount);
-  const save = () => { clearTimeout(budSaveTimer); budSaveTimer = setTimeout(() => saveBudget(budLines), 600); };
-  const commit = (n, c, v) => {
-    if (c === 0) {
-      const name = lc(v).trim();
-      if (n.add) { if (!name) return false; const t = typical(n.kind, name); lines.splice(lines.reduce((at, r, i) => r.group === n.add ? i + 1 : at, lines.length), 0, { group: n.add, line: name, amount: t ? Math.round(t / 10) * 10 : 0 }); }
-      else if (!name) lines.splice(lines.indexOf(n.line), 1);
-      else if (name === n.line.line) return false; else n.line.line = name;
-    } else {
-      const x = parseFloat(String(v).replace(/[^0-9.\-]/g, "")), amt = isFinite(x) ? Math.round(x * 100) / 100 : 0;
-      if (n.add) { if (!amt) return false; lines.splice(lines.reduce((at, r, i) => r.group === n.add ? i + 1 : at, lines.length), 0, { group: n.add, line: "new line", amount: amt }); }
-      else if (amt === n.line.amount) return false; else n.line.amount = amt;
-    }
-    save(); return true;
+  const paint = () => { tb.querySelectorAll("td.sel").forEach(td => td.classList.remove("sel")); const td = cellAt(st.r, st.c); if (td) td.classList.add("sel"); };
+  const step = (dr, dc) => {
+    if (!editCols.includes(st.c)) st.c = editCols[0];
+    if (dc) st.c = editCols[Math.max(0, Math.min(editCols.length - 1, editCols.indexOf(st.c) + dc))];
+    st.r = Math.max(0, Math.min(nav.length - 1, st.r + dr)); paint();
   };
-  // editing happens in an input laid over the cell, aligned like the cell: names left, amounts right
-  const edit = (initial) => {
-    const td = cellAt(budSel.r, budSel.c), n = nav[budSel.r]; if (!td || !n) return;
-    budEdit.on = true; budEdit.typed = initial != null;
-    const input = el("input", "cell-in" + (budSel.c ? " num" : "")); input.value = initial != null ? initial : raw(n, budSel.c);
-    if (budSel.c) input.inputMode = "decimal";
-    td.replaceChildren(input); input.focus();
-    if (initial == null) input.setSelectionRange(input.value.length, input.value.length);
+  const commit = (n, c, v) => {
+    const col = o.cols[c]; v = String(v).trim();
+    if (n.add) return v ? n.add.add(c, v) : false;
+    if (c === editCols[0] && !v) { o.remove(n.row); return true; }
+    if (col.raw(n.row) === v) return false;
+    col.set(n.row, v); return true;
+  };
+  const redraw = () => { o.render(); const t = o.host.querySelector("table"); if (t) t.focus(); };
+  const edit = initial => {
+    const td = cellAt(st.r, st.c), n = nav[st.r]; if (!td || !n) return;
+    st.editing = true; const typed = initial != null, col = o.cols[st.c];
+    const input = el("input", "cell-in" + (col.num ? " num" : "")); input.value = typed ? initial : n.add ? "" : col.raw(n.row);
+    if (col.num) input.inputMode = "decimal";
+    td.replaceChildren(input); input.focus(); if (!typed) input.setSelectionRange(input.value.length, input.value.length);
     let done = false;
     const finish = (ok, move) => {
-      if (done) return; done = true; budEdit.on = false;
-      const changed = ok && commit(n, budSel.c, input.value); void changed;
-      if (move) select(budSel.r + move[0], budSel.c + move[1]);
-      renderBudget(); const t2 = $("#budgetBody table"); if (t2 && (move || changed || ok)) t2.focus();
+      if (done) return; done = true; st.editing = false;
+      const changed = ok && commit(n, st.c, input.value);
+      if (move) step(move[0], move[1]);
+      if (changed) o.changed();
+      redraw();
     };
     input.onkeydown = e => {
       if (e.key === "Enter") { e.preventDefault(); finish(true, [1, 0]); }
-      else if (e.key === "Tab") { e.preventDefault(); finish(true, e.shiftKey ? [0, -1] : [0, 1]); }
+      else if (e.key === "Tab") { e.preventDefault(); finish(true, [0, e.shiftKey ? -1 : 1]); }
       else if (e.key === "Escape") { e.preventDefault(); finish(false); }
-      else if (budEdit.typed && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); finish(true, [e.key === "ArrowDown" ? 1 : -1, 0]); }
+      else if (typed && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); finish(true, [e.key === "ArrowDown" ? 1 : -1, 0]); }
       e.stopPropagation();
     };
     input.onblur = () => finish(true);
   };
-  tb.onmousedown = e => {
-    const td = e.target.closest("td.cell"); if (!td || e.target.tagName === "INPUT") return;
-    e.preventDefault(); tb.focus(); select(+td.parentNode.dataset.r, +td.dataset.c);
-  };
-  tb.ondblclick = e => { const td = e.target.closest("td.cell"); if (td && e.target.tagName !== "INPUT") edit(); };
+  tb.onmousedown = e => { const td = e.target.closest("td.cell"); if (!td || e.target.tagName === "INPUT") return; e.preventDefault(); tb.focus(); st.r = +td.parentNode.dataset.r; st.c = +td.dataset.c; paint(); };
+  tb.ondblclick = e => { if (e.target.closest("td.cell") && e.target.tagName !== "INPUT") edit(); };
   tb.onkeydown = e => {
-    if (budEdit.on || budSel.r < 0) return;
+    if (st.editing || st.r < 0) return;
     const k = e.key;
-    if (k === "ArrowDown") select(budSel.r + 1, budSel.c); else if (k === "ArrowUp") select(budSel.r - 1, budSel.c);
-    else if (k === "ArrowRight" || (k === "Tab" && !e.shiftKey)) select(budSel.r, budSel.c + 1); else if (k === "ArrowLeft" || (k === "Tab" && e.shiftKey)) select(budSel.r, budSel.c - 1);
+    if (k === "ArrowDown") step(1, 0); else if (k === "ArrowUp") step(-1, 0);
+    else if (k === "ArrowRight" || (k === "Tab" && !e.shiftKey)) step(0, 1); else if (k === "ArrowLeft" || (k === "Tab" && e.shiftKey)) step(0, -1);
     else if (k === "Enter" || k === "F2") edit();
-    else if (k === "Delete" || k === "Backspace") { const n = nav[budSel.r]; if (n && !n.add && commit(n, budSel.c, budSel.c ? "0" : "")) renderBudget(); }
-    else if (k.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) { edit(k); }
+    else if (k === "Delete" || k === "Backspace") { const n = nav[st.r], col = o.cols[st.c]; if (n && !n.add && commit(n, st.c, col.cleared != null ? col.cleared : "")) { o.changed(); redraw(); } }
+    else if (k.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) edit(k);
     else return;
     e.preventDefault(); e.stopPropagation();
   };
-  tb.onblur = () => { if (!budEdit.on) setTimeout(() => { if (!budEdit.on && document.activeElement !== $("#budgetBody table")) { budSel.r = -1; paint(); } }, 0); };
-  paint();
+  tb.onblur = () => setTimeout(() => { if (!st.editing && !tb.contains(document.activeElement) && !o.host.contains(document.activeElement)) { st.r = -1; paint(); } }, 0);
+  o.host.replaceChildren(tb); paint();
+  return tb;
 }
 
-/* ---------- filings, in full: what's coming up and what's gone in ---------- */
-function renderFilingList() {
-  const today = iso(new Date()), when = f => f.target || f.deadline || "";
-  const up = filingDates().filter(f => f.status !== "done").sort((a, b) => (when(a) || "9") < (when(b) || "9") ? -1 : 1);
-  const done = pastFilings().sort((a, b) => a.date < b.date ? 1 : -1);
-  const who = w => w && w !== "personal" ? " (" + w + ")" : "";
-  const col = (title, rows) => { const d = el("div", "pick"); d.append(el("i", "mt", title), ...rows); if (!rows.length) d.append(el("p", "empty", "nothing")); return d; };
-  const upRows = up.map(f => { const d = when(f), late = d && d < today; const r = lead(f.name + who(f.who), d ? (late ? "now" : longDate(d)) : f.status, { cls: "filing" + (late ? " late" : "") }); r.dataset.row = "u" + f.row; r.title = [submitText(f, today), f.deadline ? "due " + longDate(f.deadline) : "", f.notes].filter(Boolean).join("\n"); return r; });
-  const doneRows = done.map(f => { const r = lead(f.name + (f.period ? " " + f.period : "") + who(f.who), f.text, { cls: "filing" }); r.dataset.row = "d" + f.row; return r; });
-  const g = el("div", "split"); g.append(col("coming up", upRows), col("filed", doneRows)); $("#filingList").replaceChildren(g);
+/* ---------- the budget, on the sheet-style table ---------- */
+let budLines = null, budMode = null, budSaveTimer = null;
+const budSel = { r: -1, c: 0 };
+function renderBudget() {
+  const mode = dash.mode, personal = mode === "personal";
+  if (budMode !== mode || !budLines) { budLines = budgetLines(mode).map(r => ({ group: r.group, line: r.line, amount: r.amount })); budMode = mode; budSel.r = -1; }
+  const lines = budLines, win = lastTwelve(mode), mo = d => MONTHS[+d.slice(5, 7) - 1] + " " + d.slice(0, 4);
+  const kindOf = {}; BUD_GROUPS[mode].forEach(([g, k]) => (kindOf[g] = k));
+  const typ = r => typical(kindOf[r.group], r.line);
+  const diff = (b, t, kind) => { if (t == null) return ""; const d = kind === "in" ? t - b : b - t; return Math.abs(d) < 0.5 ? "–" : { t: (d < 0 ? "−" : "+") + money(Math.abs(d)).replace(/^−/, ""), cls: d < 0 ? "r" : "g" }; };
+  const amount = v => { const x = parseFloat(String(v).replace(/[^0-9.\-]/g, "")); return isFinite(x) ? Math.round(x * 100) / 100 : 0; };
+  const insertAt = g => lines.reduce((at, r, i) => r.group === g ? i + 1 : at, lines.length);
+  const sums = {};
+  const groups = BUD_GROUPS[mode].map(([g, kind]) => {
+    const mine = lines.filter(r => r.group === g), ts = mine.map(typ);
+    const bt = mine.reduce((a, r) => a + r.amount, 0), tt = ts.reduce((a, t) => a + (t || 0), 0), has = ts.some(t => t != null); sums[g] = { b: bt, t: tt };
+    // the group's difference only counts lines that have a normal month to compare with
+    const bm = mine.reduce((a, r, k) => a + (ts[k] == null ? 0 : r.amount), 0);
+    return { label: g, rows: mine, head: [money(bt), has ? money(tt) : "", has ? diff(bm, tt, kind) : ""],
+      add: (c, v) => { if (c === 0) { const t = typical(kind, lc(v)); lines.splice(insertAt(g), 0, { group: g, line: lc(v), amount: t ? Math.round(t / 10) * 10 : 0 }); } else lines.splice(insertAt(g), 0, { group: g, line: "new line", amount: amount(v) }); return true; } };
+  });
+  const after = [];
+  if (personal) {
+    const s = sums, needB = s.spending.b + s.saving.b, needT = s.spending.t + s.saving.t, lo = s.income.b - needB;
+    after.push(["left over", { t: money(lo), cls: lo < 0 ? "r" : "" }, money(s.income.t - needT), diff(lo, s.income.t - needT, "in")]);
+    // what the company needs to pay you: everything you spend and put aside, less income from anywhere else
+    const other = lines.filter(r => r.group === "income" && !/salary|dividend|director/.test(r.line)).reduce((a, r) => a + r.amount, 0);
+    after.push(["pay yourself", money(needB - other), "", ""]);
+  } else { const pb = sums.revenue.b - sums.costs.b, pt = sums.revenue.t - sums.costs.t; after.push(["profit", { t: money(pb), cls: pb < 0 ? "r" : "" }, money(pt), diff(pb, pt, "in")]); }
+  sheetGrid({ host: $("#budgetBody"), cls: "budget", state: budSel, render: renderBudget, groups, after,
+    changed: () => { clearTimeout(budSaveTimer); budSaveTimer = setTimeout(() => saveBudget(budLines), 600); },
+    remove: r => lines.splice(lines.indexOf(r), 1),
+    cols: [
+      { label: "", edit: true, show: r => r.line, raw: r => r.line, set: (r, v) => { r.line = lc(v); } },
+      { label: "per month", num: true, edit: true, cleared: "0", show: r => money(r.amount), raw: r => String(r.amount), set: (r, v) => { r.amount = amount(v); } },
+      { label: "normal month", num: true, title: "the middle month of " + mo(win.from) + " – " + mo(win.to), show: r => { const t = typ(r); return t == null ? "" : money(t); } },
+      { label: "difference", num: true, show: r => diff(r.amount, typ(r), kindOf[r.group]) }
+    ] });
 }
+
+/* ---------- filings: one list, grouped by the job each filing belongs to, kept on a "filing log" tab ----------
+   columns on the tab: group, filing, period, submit by, due, status, submitted, notes */
+const FILING_GROUPS = ["closing the uk company", "irish company", "uk company", "self assessment"];
+const groupWho = g => g === "irish company" ? "ie ltd" : g === "self assessment" ? "personal" : "uk ltd";
+const MON3 = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+// a date typed any of the usual ways: 2027-01-08, 8 jan 2027, jan 2027 (the 1st), with words like "due" or "paid" around it
+function dateOf(t) {
+  t = lc(t); let m = /(\d{4})-(\d{2})-(\d{2})/.exec(t); if (m) return m[0];
+  m = /(?:(\d{1,2}) )?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* (\d{4})/.exec(t);
+  return m ? m[3] + "-" + String(MON3[m[2]]).padStart(2, "0") + "-" + String(m[1] || 1).padStart(2, "0") : "";
+}
+let filLog = null, filSaveTimer = null;
+const filSel = { r: -1, c: 0 };
+// every row of the old status tables on the filings tab
+function pastFilingsAll() {
+  const t = data.filings; if (!t) return [];
+  const rows = t.display, out = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = (rows[i] || []).map(lc), c = r.indexOf("filing");
+    if (c < 0 || r[c + 2] !== "submitted" || r[c + 3] !== "status") continue;
+    const title = lc(((rows[i - 1] || [])[c]) || ""), who = /irish/.test(title) ? "ie ltd" : /uk/.test(title) ? "uk ltd" : /personal|self/.test(title) ? "personal" : "";
+    for (let j = i + 1; j < rows.length; j++) { const x = (rows[j] || []).map(lc); if (!x[c]) break; out.push({ name: x[c], period: x[c + 1], who, text: x[c + 2] || "", status: x[c + 3] || "" }); }
+  }
+  return out;
+}
+// the first time: everything from the old status and dates tables, matched up where they describe the same filing
+function seedFilings() {
+  const out = [], dates = filingDatesOld(), used = new Set();
+  const groupFor = (who, name, period) => who === "ie ltd" ? "irish company" : who === "personal" ? "self assessment"
+    : /strike|paye final|dereg|final balance|refund|repayment/.test(name) || /2026|2027/.test(period) ? "closing the uk company" : "uk company";
+  pastFilingsAll().forEach(p => {
+    const full = (p.name + " " + p.period).trim(), d = dates.findIndex((x, k) => !used.has(k) && x.who === p.who && (x.name.includes(full) || full.includes(x.name)));
+    const x = d >= 0 ? dates[d] : null; if (x) used.add(d);
+    out.push({ group: groupFor(p.who, p.name, p.period), filing: p.name, period: p.period, target: x ? x.target : "", due: x ? x.deadline : dateOf(/due/.test(p.text) ? p.text : ""), status: p.status || (x ? x.status : ""), submitted: /due/.test(p.text) ? "" : p.text, notes: x ? x.notes : "" });
+  });
+  dates.forEach((x, k) => { if (!used.has(k)) out.push({ group: groupFor(x.who, x.name, ""), filing: x.name, period: "", target: x.target, due: x.deadline, status: x.status, submitted: "", notes: x.notes }); });
+  return out;
+}
+function filingLog() {
+  if (filLog) return filLog;
+  const t = tabByName("filing log");
+  const rows = t ? t.display.map((r, i) => ({ i, r: r || [] })).filter(x => x.i > 2 && lc(x.r[2])).map(({ r }) => ({ group: lc(r[1]), filing: lc(r[2]), period: lc(r[3]), target: dateOf(r[4]), due: dateOf(r[5]), status: lc(r[6]), submitted: lc(r[7]), notes: lc(r[8]) })) : [];
+  filLog = rows.length ? rows : seedFilings();
+  // sorted once when loaded (open ones first, soonest first; then filed, newest first), then left in place while you edit
+  const when = f => f.target || f.due || "";
+  const key = f => isDone(f) ? [1, -(+(dateOf(f.submitted) || "0").replace(/-/g, ""))] : [0, +((when(f) || "9999-12-31").replace(/-/g, ""))];
+  filLog.sort((a, b) => { const x = key(a), y = key(b); return x[0] - y[0] || x[1] - y[1]; });
+  return filLog;
+}
+const isDone = f => /^(done|filed|paid)/.test(f.status);
+// what the rest of the dashboard reads: open filings with their dates, and filed ones with the date they went in
+function filingDates() {
+  return filingLog().map((f, row) => ({ row, name: f.filing + (f.period && !f.filing.includes(f.period) ? " " + f.period : ""), who: groupWho(f.group), target: f.target, deadline: f.due, notes: f.notes,
+    status: isDone(f) ? "done" : f.status === "confirm" ? "filed, to confirm" : f.status || "coming up" }));
+}
+function pastFilings() {
+  return filingLog().map((f, row) => ({ f, row })).filter(({ f }) => dateOf(f.submitted) && f.status !== "later")
+    .map(({ f, row }) => ({ row, name: f.filing, period: f.period, who: groupWho(f.group), date: dateOf(f.submitted), text: f.submitted }));
+}
+async function saveFilings() {
+  const rows = filLog.map(f => [f.group, f.filing, f.period, f.target, f.due, f.status, f.submitted, f.notes]);
+  let t = tabByName("filing log");
+  const old = t ? t.display.filter((r, i) => i > 2 && (r || []).some(Boolean)).length : 0;
+  while (rows.length < old) rows.push(["", "", "", "", "", "", "", ""]);
+  const head = ["group", "filing", "period", "submit by", "due", "status", "submitted", "notes"];
+  if (TEST) { if (!t) { t = { name: "filing log", display: [], raw: [], fmt: [] }; book.tabs.push(t); } t.display = [["", "filing log"], [], ["", ...head]].concat(rows.map(r => ["", ...r])); t.raw = t.display; return; }
+  status("saving");
+  try {
+    if (!t) {
+      const res = await api(SHEETS + book.id + ":batchUpdate", { method: "POST", body: JSON.stringify({ requests: [{ addSheet: { properties: { title: "filing log" } } }] }) });
+      t = { name: "filing log", sheetId: res.replies[0].addSheet.properties.sheetId, display: [], raw: [], fmt: [] }; book.tabs.push(t);
+    }
+    const range = quote(t.name) + "!B1:I" + (3 + rows.length);
+    await api(SHEETS + book.id + "/values/" + encodeURIComponent(range) + "?valueInputOption=RAW", { method: "PUT", body: JSON.stringify({ range, majorDimension: "ROWS", values: [["filing log"], [""], head].concat(rows) }) });
+    await refreshTab(t); status("saved");
+  } catch (e) { status(e.expired ? "signed out. sign in again to save." : e.message); }
+}
+function renderFilingList() {
+  const log = filingLog(), today = iso(new Date()), when = f => f.target || f.due || "";
+  const day = d => d ? longDate(d) : "";
+  const dated = k => ({ show: f => day(f[k]), raw: f => day(f[k]), set: (f, v) => { f[k] = dateOf(v); } });
+  const cols = [
+    { label: "", edit: true, show: f => { const d = when(f); return { t: f.filing, cls: !isDone(f) && d && d < today ? "r" : "" }; }, raw: f => f.filing, set: (f, v) => { f.filing = lc(v); } },
+    { label: "period", edit: true, show: f => f.period, raw: f => f.period, set: (f, v) => { f.period = lc(v); } },
+    Object.assign({ label: "submit by", edit: true }, dated("target")),
+    Object.assign({ label: "due", edit: true }, dated("due")),
+    { label: "status", edit: true, show: f => ({ t: f.status, cls: isDone(f) ? "g" : f.status === "to do" ? "r" : "" }), raw: f => f.status, set: (f, v) => { f.status = lc(v); } },
+    { label: "submitted", edit: true, show: f => f.submitted, raw: f => f.submitted, set: (f, v) => { f.submitted = lc(v); } }
+  ];
+  const groups = FILING_GROUPS.map(g => {
+    const rows = log.filter(f => f.group === g), left = rows.filter(f => !isDone(f)).length;
+    return { label: g, rows, head: ["", "", "", { t: left ? left + " left" : "all done", cls: left ? "" : "g" }, ""],
+      add: (c, v) => { const f = { group: g, filing: "", period: "", target: "", due: "", status: "to do", submitted: "", notes: "" }; cols[c].set(f, v); if (!f.filing) f.filing = "new filing"; log.push(f); return true; } };
+  });
+  sheetGrid({ host: $("#filingList"), cls: "filings", state: filSel, render: renderFilingList, groups, cols,
+    rowCls: f => isDone(f) ? "done" : "", rowId: f => String(log.indexOf(f)), rowTitle: f => f.notes || "",
+    changed: () => { clearTimeout(filSaveTimer); filSaveTimer = setTimeout(saveFilings, 600); renderFilings(); },
+    remove: f => log.splice(log.indexOf(f), 1) });
+}
+
 // a filing clicked anywhere scrolls to it in the filings section
 function openFiling(row) {
   if (view !== "dashboard") showView("dashboard");
-  const r = $('#filingList [data-row="u' + row + '"], #filingList [data-row="d' + row + '"]'); if (!r) return;
+  const r = $('#filingList tr[data-row="' + row + '"]'); if (!r) return;
   r.scrollIntoView({ block: "center" }); r.classList.add("flash"); setTimeout(() => r.classList.remove("flash"), 2500);
 }
 function renderMore() { renderBudget(); renderFilingList(); }
@@ -1454,7 +1551,7 @@ function txView({ head, grid, scroller, host, tab, f, rebuild, key }) {
 // the transactions table, shared by the transactions tab and the pop-up: a month column on the left with its totals
 // pinned beside its rows, the chosen columns, and rows loaded a page at a time as you scroll
 const TX_PAGE = 120, TX_FMT2 = v => (v < 0 ? "-" : "") + Math.abs(v).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-function txCols(c) { return [["date", c.date, "date"], ["account", c.account, "pick"], ["entity", c.entity, "pick"], ["merchant", c.merchant, "text"], ["reference", c.reference, "text"], ["amount", c.amount, "amt"], ["usd", -1, "num"], ["balance", -2, "num"], ["receipt", c.receipt, "receipt"], ["category", c.category, "cat"]]; }
+function txCols(c) { return [["date", c.date, "date"], ["account", c.account, "pick"], ["entity", c.entity, "pick"], ["merchant", c.merchant, "text"], ["reference", c.reference, "text"], ["receipt", c.receipt, "receipt"], ["amount", c.amount, "amt"], ["usd", -1, "num"], ["balance", -2, "num"], ["category", c.category, "cat"]]; }
 function txTable({ grid, scroller, host, tab, list, shownCols, bal, cats, entities, accounts }) {
   grid.className = "grid tx"; let obs = null;
     const cg = el("colgroup"); cg.append(el("col", "c-gut")); shownCols.forEach(([n]) => cg.append(el("col", "c-" + n))); grid.append(cg);

@@ -290,10 +290,9 @@ input.inline { box-sizing: border-box; width: 110px; height: 26px; padding: 0 6p
 .grid.tx col.c-amount { width: 120px; }
 .grid.tx col.c-usd { width: 116px; }
 .grid.tx col.c-balance { width: 128px; }
-.grid.tx col.c-receipt { width: 96px; }
+/* merchant, reference and receipt have no set width, so they share what's left equally */
 .grid.tx col.c-category { width: 196px; }
 .grid.tx td, .grid.tx th { padding-right: 16px; overflow: hidden; text-overflow: ellipsis; }
-.grid.tx td.c-receipt, .grid.tx th.c-receipt { padding-left: 16px; }
 .grid.tx td:last-child, .grid.tx th:last-child { padding-right: 0; }
 /* the month column: its label and totals pinned beside its rows */
 .grid.tx td.gut { vertical-align: top; padding: 0 24px 0 0; background: var(--card) !important; overflow: clip; }
@@ -390,14 +389,17 @@ html.fit .sheet-scroll { max-height: none !important; }
 .filters #pdfButton { margin-left: 0; }
 
 /* budget and filings, at the bottom of the dashboard */
-table.budget { width: 100%; outline: none; }
-table.budget td.cell { position: relative; cursor: default; }
-table.budget tr.cells td.cell:hover > span { color: var(--grey); }
-table.budget td.cell.sel { box-shadow: inset 0 0 0 2px var(--ink); }
-table.budget td.cell.sel > span { background: transparent; }
-table.budget tr.blank td { height: 30px; background-image: none; }
-table.budget td.cell:has(> input) { padding-top: 0; padding-bottom: 0; box-shadow: none; }
-table.budget input.cell-in { display: block; box-sizing: border-box; width: 100%; height: 24px; margin: 0; padding: 0 4px; border: 0; outline: 2px solid var(--ink); outline-offset: -2px; background: var(--card); font: inherit; color: var(--ink); text-align: left; }
-table.budget input.cell-in.num { text-align: right; }
-#filingList .lead.flash { background: var(--need); }
-table.budget tr.blank td.cell:hover { background-color: var(--soft); }
+table.grid-sheet { width: 100%; outline: none; }
+table.grid-sheet td.cell { position: relative; cursor: default; }
+table.grid-sheet tr.cells td.cell:hover > span { color: var(--grey); }
+table.grid-sheet td.cell.sel { box-shadow: inset 0 0 0 2px var(--ink); }
+table.grid-sheet td.cell.sel > span { background: transparent; }
+table.grid-sheet tr.blank td { height: 30px; background-image: none; }
+table.grid-sheet td.cell:has(> input) { padding-top: 0; padding-bottom: 0; box-shadow: none; }
+table.grid-sheet input.cell-in { display: block; box-sizing: border-box; width: 100%; height: 24px; margin: 0; padding: 0 4px; border: 0; outline: 2px solid var(--ink); outline-offset: -2px; background: var(--card); font: inherit; color: var(--ink); text-align: left; }
+table.grid-sheet input.cell-in.num { text-align: right; }
+#filingList tr.flash td { --rowbg: var(--need); background-color: var(--need); }
+table.filings th:not(:first-child), table.filings td:not(:first-child) { width: 13%; }
+table.grid-sheet tr.done td { color: var(--grey); }
+table.grid-sheet tr.done td.g { color: var(--gtext); }
+table.grid-sheet tr.blank td.cell:hover { background-color: var(--soft); }
