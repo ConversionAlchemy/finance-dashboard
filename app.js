@@ -405,7 +405,7 @@ function nextPeriod(dir, fys = fyList()) {
 }
 function stepPeriod(dir) { const n = nextPeriod(dir); if (n) { Object.assign(dash, n); renderDashboard(); } }
 document.addEventListener("keydown", e => {
-  if (!data || view !== "dashboard" || e.metaKey || e.ctrlKey || e.altKey || /input|select|textarea/i.test((e.target.tagName || "")) || e.target.closest("table.grid-sheet")) return;
+  if (!data || view !== "dashboard" || e.metaKey || e.ctrlKey || e.altKey || /input|select|textarea/i.test((e.target.tagName || "")) || e.target.closest(".lgrid")) return;
   if (e.key === "ArrowLeft") { e.preventDefault(); stepPeriod(-1); }
   if (e.key === "ArrowRight") { e.preventDefault(); stepPeriod(1); }
 });
@@ -935,87 +935,79 @@ function seedBudget(mode) {
 function budgetLines(mode = dash.mode) { const rows = budgetRows().filter(r => r.mode === mode); return rows.length ? rows : seedBudget(mode); }
 // what you spend in a month on your personal budget (the dashboard's budget line)
 function monthlyBudget() { const sp = budgetLines("personal").filter(r => r.group === "spending").reduce((a, r) => a + r.amount, 0); return sp > 0 ? { spend: sp } : null; }
-async function saveBudget(lines) {
-  // this mode's lines are rewritten; the other mode's are kept as they are
-  const other = dash.mode === "personal" ? "business" : "personal", keep = budgetRows().filter(r => r.mode === other);
-  const rows = lines.map(r => [dash.mode, r.group, r.line, r.amount]).concat(keep.map(r => [r.mode, r.group, r.line, r.amount]));
-  let t = tabByName("budget");
-  const old = t ? t.display.filter((r, i) => i > 2 && (r || []).some(Boolean)).length : 0;
-  while (rows.length < old) rows.push(["", "", "", ""]);
-  const head = [["budget"], [], ["mode", "group", "line", "per month"]];
-  if (TEST) {
-    if (!t) { t = { name: "budget", display: [], raw: [], fmt: [] }; book.tabs.push(t); }
-    t.display = [["", "budget"], [], ["", ...head[2]]].concat(rows.map(r => ["", ...r.map(String)])); t.raw = t.display; return;
-  }
-  status("saving");
-  try {
-    if (!t) {
-      const res = await api(SHEETS + book.id + ":batchUpdate", { method: "POST", body: JSON.stringify({ requests: [{ addSheet: { properties: { title: "budget" } } }] }) });
-      t = { name: "budget", sheetId: res.replies[0].addSheet.properties.sheetId, display: [], raw: [], fmt: [] }; book.tabs.push(t);
-    }
-    const range = quote(t.name) + "!B1:E" + (3 + rows.length);
-    await api(SHEETS + book.id + "/values/" + encodeURIComponent(range) + "?valueInputOption=USER_ENTERED", { method: "PUT", body: JSON.stringify({ range, majorDimension: "ROWS", values: [["budget"], [""], head[2]].concat(rows) }) });
-    await refreshTab(t); status("saved");
-  } catch (e) { status(e.expired ? "signed out. sign in again to save." : e.message); }
-}
-/* ---------- a table that works like a sheet ----------
-   click a cell to select it, type to replace it, enter or double-click to edit it; enter moves down, tab moves right,
-   arrows move, delete clears, escape cancels. each group ends in an empty row: type in it to add a row.
-   clearing a row's first cell removes the row. o.cols: [{ label, num, edit, show(row), raw(row), set(row, v) }],
-   o.groups: [{ label, rows, head: [cells after the label], add(colIndex, value) }], o.after: [[label, ...cells]],
-   o.state keeps the selection between renders, o.changed() runs after any edit, o.render() redraws. */
-function sheetGrid(o) {
-  const st = o.state, tb = el("table", "plan grid-sheet " + (o.cls || "")); tb.tabIndex = 0;
+/* ---------- lists you can type in, drawn like the dashboard's own lists ----------
+   each row is a dotted lead line: things on the left, a dotted line, things on the right.
+   click a value to select it, type to replace it, enter or double-click to edit it; enter moves down, tab moves right,
+   arrows move, delete clears, escape cancels. each group ends in an empty row: type in it to add a row; clearing a
+   row's first value removes it. o.cols: [{ side: "left"|"right", edit, toggle, show(row) -> text | { t, cls }, raw, set,
+   wrap: "()" puts it in brackets, sub: shown grey }], o.groups: [{ label, rows, head: { left, right } as [text|{t,cls}], add(c, v) }],
+   o.lines: [{ label, right, cls, at: "after" }] plain lines, o.state keeps the selection, o.changed() after an edit. */
+function leadGrid(o) {
+  const st = o.state, box = el("div", "lgrid " + (o.cls || "")); box.tabIndex = 0; box.dataset.key = o.key || "";
   const editCols = o.cols.map((c, k) => c.edit || c.toggle ? k : -1).filter(k => k >= 0), nav = [];
-  const head = el("tr"); o.cols.forEach(c => { const th = el("th", c.num ? "num" : null, c.label); if (c.title) th.title = c.title; head.append(th); });
-  tb.append(el("thead")); tb.tHead.append(head);
-  const body = el("tbody");
-  // a cell's value can be text, or { t, cls } for coloured text
-  const cell = (c, v, extra) => { const t = v && v.t != null ? v.t : v == null ? "" : String(v), td = el("td", [c && c.num ? "num" : "", extra || "", v && v.cls ? v.cls : ""].filter(Boolean).join(" ") || null); td.append(el("span", null, t)); if (t.length > 18) td.title = t; return td; };
-  o.groups.forEach(g => {
-    // the group's name sits over the first column you type in (a tick box column before it is spanned)
-    const lc0 = Math.max(0, o.cols.findIndex(x => x.edit)), hr = el("tr", "head line"), lab = cell(null, g.label); lab.colSpan = lc0 + 1; hr.append(lab);
-    o.cols.slice(lc0 + 1).forEach((c, k) => hr.append(cell(c, (g.head || [])[k])));
-    body.append(hr);
+  const val = v => v && v.t != null ? v.t : v == null ? "" : String(v);
+  const piece = (c, v, k, r) => {
+    const t = val(v), s = el("span", ["v", c.cls || "", v && v.cls ? v.cls : "", c.edit || c.toggle ? "cell" : "", c.toggle ? "tick" : ""].filter(Boolean).join(" "), t);
+    if (c.edit || c.toggle) s.dataset.c = k;
+    if (c.wrap && t) { const w = el("span", "wrap"); w.append("(", s, ")"); return w; }
+    if (t.length > 28) s.title = t;
+    return s;
+  };
+  const line = (cls, left, right, title) => {
+    const d = el("div", "lead " + cls), l = el("span", "lv"), rr = el("span", "rv");
+    left.forEach(x => l.append(x)); right.forEach((x, i) => { if (i) rr.append(" "); rr.append(x); });
+    d.append(l, el("span", "dots"), rr); if (title) d.title = title; return d;
+  };
+  const plain = v => { const t = val(v); return el("span", "v " + (v && v.cls ? v.cls : ""), t); };
+  (o.lines || []).filter(x => x.at === "before").forEach(x => box.append(line(x.cls || "", [plain(x.label)], (x.right || []).map(plain))));
+  o.groups.forEach((g, gi) => {
+    const h = line("hd" + (gi ? " group" : ""), [plain(g.label)], ((g.head || {}).right || []).map(plain));
+    if (g.onclick) { h.classList.add("link"); h.onclick = g.onclick; }
+    box.append(h);
     g.rows.forEach(r => {
-      const tr = el("tr", "line cells" + (o.rowCls && o.rowCls(r) ? " " + o.rowCls(r) : "")); tr.dataset.r = nav.length; nav.push({ row: r, g });
-      if (o.rowId) tr.dataset.row = o.rowId(r);
-      if (o.rowTitle && o.rowTitle(r)) tr.title = o.rowTitle(r);
-      o.cols.forEach((c, k) => { const td = cell(c, c.show(r), c.edit || c.toggle ? "cell" : ""); if (c.edit || c.toggle) td.dataset.c = k; tr.append(td); });
-      body.append(tr);
+      const left = [], right = [];
+      o.cols.forEach((c, k) => { const v = c.show(r); if (c.side === "right") { if (val(v) || c.edit) right.push(piece(c, v, k, r)); } else left.push(piece(c, v, k, r)); });
+      const d = line("cells" + (o.rowCls && o.rowCls(r) ? " " + o.rowCls(r) : ""), left, right, o.rowTitle && o.rowTitle(r));
+      d.dataset.r = nav.length; nav.push({ row: r, g }); if (o.rowId) d.dataset.row = o.rowId(r);
+      box.append(d);
     });
     if (g.add) {
-      const tr = el("tr", "cells blank"); tr.dataset.r = nav.length; nav.push({ add: g });
-      o.cols.forEach((c, k) => { const td = el("td", [c.num ? "num" : "", c.edit ? "cell" : ""].filter(Boolean).join(" ") || null); if (c.edit) td.dataset.c = k; tr.append(td); });
-      body.append(tr);
+      const left = [], right = [];
+      o.cols.forEach((c, k) => { if (!c.edit) return; const s = el("span", "v cell", ""); s.dataset.c = k; (c.side === "right" ? right : left).push(s); });
+      const d = line("cells blank", left, right); d.dataset.r = nav.length; nav.push({ add: g }); box.append(d);
     }
   });
-  (o.after || []).forEach(a => { const tr = el("tr", "head line"); a.forEach((v, k) => tr.append(cell(k ? o.cols[k] : null, v))); body.append(tr); });
-  tb.append(body);
+  (o.lines || []).filter(x => x.at !== "before").forEach((x, i) => box.append(line("hd tot" + (i ? "" : " first") + " " + (x.cls || ""), [plain(x.label)], (x.right || []).map(plain), x.title)));
 
-  const cellAt = (r, c) => tb.querySelector('tr[data-r="' + r + '"] td[data-c="' + c + '"]');
-  const paint = () => { tb.querySelectorAll("td.sel").forEach(td => td.classList.remove("sel")); const td = cellAt(st.r, st.c); if (td) td.classList.add("sel"); };
+  const cellAt = (r, c) => box.querySelector('[data-r="' + r + '"] [data-c="' + c + '"]');
+  const paint = () => { box.querySelectorAll(".sel").forEach(x => x.classList.remove("sel")); const x = cellAt(st.r, st.c); if (x) x.classList.add("sel"); };
   const step = (dr, dc) => {
     if (!editCols.includes(st.c)) st.c = editCols[0];
     if (dc) st.c = editCols[Math.max(0, Math.min(editCols.length - 1, editCols.indexOf(st.c) + dc))];
-    st.r = Math.max(0, Math.min(nav.length - 1, st.r + dr)); paint();
+    st.r = Math.max(0, Math.min(nav.length - 1, st.r + dr));
+    // the empty row has no tick box: land on the first thing you can type in
+    if (nav[st.r] && nav[st.r].add && o.cols[st.c].toggle) st.c = editCols.find(k => o.cols[k].edit);
+    paint();
   };
+  const firstEdit = o.cols.findIndex(x => x.edit);
   const commit = (n, c, v) => {
     const col = o.cols[c]; v = String(v).trim();
     if (n.add) return v ? n.add.add(c, v) : false;
-    if (c === o.cols.findIndex(x => x.edit) && !v) { o.remove(n.row); return true; }
+    if (c === firstEdit && !v) { o.remove(n.row); return true; }
     if (col.raw(n.row) === v) return false;
     col.set(n.row, v); return true;
   };
-  const redraw = () => { o.render(); const t = o.host.querySelector("table"); if (t) t.focus(); };
-  const flip = () => { const n = nav[st.r], col = o.cols[st.c]; if (!n || n.add || !col.toggle) return false; col.toggle(n.row); o.changed(); redraw(); return true; };
+  // a redraw can replace the whole section, so find this list again by its key
+  const redraw = () => { o.render(); const b = document.querySelector('.lgrid[data-key="' + (o.key || "") + '"]'); if (b) b.focus(); };
+  const flip = () => { const n = nav[st.r], col = o.cols[st.c]; if (!n || n.add || !col.toggle) return; col.toggle(n.row); o.changed(); redraw(); };
   const edit = initial => {
-    if (o.cols[st.c].toggle) { flip(); return; }
-    const td = cellAt(st.r, st.c), n = nav[st.r]; if (!td || !n || (n.add && !o.cols[st.c].edit)) return;
-    st.editing = true; const typed = initial != null, col = o.cols[st.c];
-    const input = el("input", "cell-in" + (col.num ? " num" : "")); input.value = typed ? initial : n.add ? "" : col.raw(n.row);
+    const col = o.cols[st.c]; if (col.toggle) return flip();
+    const x = cellAt(st.r, st.c), n = nav[st.r]; if (!x || !n) return;
+    st.editing = true; const typed = initial != null;
+    const input = el("input", "cell-in" + (col.side === "right" ? " num" : "")); input.value = typed ? initial : n.add ? "" : col.raw(n.row);
+    const size = () => { input.style.width = Math.max(col.side === "right" ? 7 : 14, input.value.length + 2) + "ch"; }; size(); input.oninput = size;
     if (col.num) input.inputMode = "decimal";
-    td.replaceChildren(input); input.focus(); if (!typed) input.setSelectionRange(input.value.length, input.value.length);
+    x.replaceWith(input); input.focus(); if (!typed) input.setSelectionRange(input.value.length, input.value.length);
     let done = false;
     const finish = (ok, move) => {
       if (done) return; done = true; st.editing = false;
@@ -1033,62 +1025,146 @@ function sheetGrid(o) {
     };
     input.onblur = () => finish(true);
   };
-  tb.onmousedown = e => { const td = e.target.closest("td.cell"); if (!td || e.target.tagName === "INPUT") return; e.preventDefault(); tb.focus(); st.r = +td.parentNode.dataset.r; st.c = +td.dataset.c; paint(); if (o.cols[st.c].toggle) flip(); };
-  tb.ondblclick = e => { if (e.target.closest("td.cell") && e.target.tagName !== "INPUT") edit(); };
-  tb.onkeydown = e => {
+  box.onmousedown = e => {
+    const x = e.target.closest(".cell"); if (!x || e.target.tagName === "INPUT") return;
+    e.preventDefault(); box.focus(); st.r = +x.closest("[data-r]").dataset.r; st.c = +x.dataset.c; paint(); if (o.cols[st.c].toggle) flip();
+  };
+  box.ondblclick = e => { if (e.target.closest(".cell") && e.target.tagName !== "INPUT") edit(); };
+  box.onkeydown = e => {
     if (st.editing || st.r < 0) return;
-    const k = e.key;
+    const k = e.key, col = o.cols[st.c];
     if (k === "ArrowDown") step(1, 0); else if (k === "ArrowUp") step(-1, 0);
     else if (k === "ArrowRight" || (k === "Tab" && !e.shiftKey)) step(0, 1); else if (k === "ArrowLeft" || (k === "Tab" && e.shiftKey)) step(0, -1);
-    else if (k === "Enter" || k === "F2" || (k === " " && o.cols[st.c].toggle)) edit();
-    else if (k === "Delete" || k === "Backspace") { const n = nav[st.r], col = o.cols[st.c]; if (n && !n.add && col.edit && commit(n, st.c, col.cleared != null ? col.cleared : "")) { o.changed(); redraw(); } }
-    else if (k.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) { if (o.cols[st.c].edit) edit(k); }
+    else if (k === "Enter" || k === "F2" || (k === " " && col.toggle)) edit();
+    else if (k === "Delete" || k === "Backspace") { const n = nav[st.r]; if (n && !n.add && col.edit && commit(n, st.c, col.cleared != null ? col.cleared : "")) { o.changed(); redraw(); } }
+    else if (k.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) { if (col.edit) edit(k); }
     else return;
     e.preventDefault(); e.stopPropagation();
   };
-  tb.onblur = () => setTimeout(() => { if (!st.editing && !tb.contains(document.activeElement) && !o.host.contains(document.activeElement)) { st.r = -1; paint(); } }, 0);
-  o.host.replaceChildren(tb); paint();
-  return tb;
+  box.onblur = () => setTimeout(() => { if (!st.editing && !box.contains(document.activeElement)) { st.r = -1; paint(); } }, 0);
+  o.host.replaceChildren(box); paint();
+  return box;
 }
 
-/* ---------- the budget, on the sheet-style table ---------- */
-let budLines = null, budMode = null, budSaveTimer = null;
-const budSel = { r: -1, c: 0 };
+/* ---------- irish tax for a proprietary director, 2027 rates (budget 2027) ----------
+   salary and dividends are taxed alike in your hands: income tax, usc and class s prsi. the difference is the company:
+   salary is a cost it deducts before its 12.5% corporation tax; dividends come out of what's left after it. */
+const IE_TAX = { year: 2027, band: 46500, credits: 2125 + 2125, usc: [[12012, 0.005], [30300, 0.02], [70044, 0.03], [Infinity, 0.08]], prsi: 0.0435 };
+function irishTax(annualEur) {
+  const x = Math.max(0, annualEur), T = IE_TAX;
+  const it = Math.max(0, Math.min(x, T.band) * 0.2 + Math.max(0, x - T.band) * 0.4 - T.credits);
+  let usc = 0, prev = 0; if (x > 13000) T.usc.forEach(([to, r]) => { if (x > prev) usc += (Math.min(x, to) - prev) * r; prev = to; });
+  const prsi = x > 5000 ? x * T.prsi : 0;
+  return { it, usc, prsi, total: it + usc + prsi };
+}
+// monthly figures in the dashboard's currency, taxed on the yearly amount in euro
+function directorTax(monthlyGross) {
+  const m = iso(new Date()).slice(0, 7), toEur = rate(m, dash.cur, "EUR");
+  const t = irishTax(monthlyGross * 12 * toEur), back = v => v / 12 / toEur;
+  return { it: back(t.it), usc: back(t.usc), prsi: back(t.prsi), total: back(t.total) };
+}
+// how much to pay yourself, before tax, to take home a given amount
+function grossFor(net) {
+  if (net <= 0) return 0;
+  let lo = net, hi = net * 3;
+  for (let i = 0; i < 50; i++) { const mid = (lo + hi) / 2; if (mid - directorTax(mid).total < net) lo = mid; else hi = mid; }
+  return hi;
+}
+
+/* ---------- the budget: the business on the left, you as director on the right, always both ---------- */
+const budAll = {}, budSel = { business: { r: -1, c: 1 }, personal: { r: -1, c: 1 } };
+let budSaveTimer = null;
+function budLinesFor(mode) { if (!budAll[mode]) budAll[mode] = budgetLines(mode).map(r => ({ group: r.group, line: r.line, amount: r.amount })); return budAll[mode]; }
+async function saveBudgetAll() {
+  const rows = ["business", "personal"].flatMap(m => budLinesFor(m).map(r => [m, r.group, r.line, r.amount]));
+  let t = tabByName("budget");
+  const old = t ? t.display.filter((r, i) => i > 2 && (r || []).some(Boolean)).length : 0;
+  while (rows.length < old) rows.push(["", "", "", ""]);
+  const head = ["mode", "group", "line", "per month"];
+  if (TEST) { if (!t) { t = { name: "budget", display: [], raw: [], fmt: [] }; book.tabs.push(t); } t.display = [["", "budget"], [], ["", ...head]].concat(rows.map(r => ["", ...r.map(String)])); t.raw = t.display; return; }
+  status("saving");
+  try {
+    if (!t) {
+      const res = await api(SHEETS + book.id + ":batchUpdate", { method: "POST", body: JSON.stringify({ requests: [{ addSheet: { properties: { title: "budget" } } }] }) });
+      t = { name: "budget", sheetId: res.replies[0].addSheet.properties.sheetId, display: [], raw: [], fmt: [] }; book.tabs.push(t);
+    }
+    const range = quote(t.name) + "!B1:E" + (3 + rows.length);
+    await api(SHEETS + book.id + "/values/" + encodeURIComponent(range) + "?valueInputOption=USER_ENTERED", { method: "PUT", body: JSON.stringify({ range, majorDimension: "ROWS", values: [["budget"], [""], head].concat(rows) }) });
+    await refreshTab(t); status("saved");
+  } catch (e) { status(e.expired ? "signed out. sign in again to save." : e.message); }
+}
 function renderBudget() {
-  const mode = dash.mode, personal = mode === "personal";
-  if (budMode !== mode || !budLines) { budLines = budgetLines(mode).map(r => ({ group: r.group, line: r.line, amount: r.amount })); budMode = mode; budSel.r = -1; }
-  const lines = budLines, win = lastTwelve(mode), mo = d => MONTHS[+d.slice(5, 7) - 1] + " " + d.slice(0, 4);
-  const kindOf = {}; BUD_GROUPS[mode].forEach(([g, k]) => (kindOf[g] = k));
-  const typ = r => typical(kindOf[r.group], r.line);
-  const diff = (b, t, kind) => { if (t == null) return ""; const d = kind === "in" ? t - b : b - t; return Math.abs(d) < 0.5 ? "–" : { t: (d < 0 ? "−" : "+") + money(Math.abs(d)).replace(/^−/, ""), cls: d < 0 ? "r" : "g" }; };
+  const wrap = el("div", "budget-pair"), bizHost = el("div"), dirHost = el("div");
+  wrap.append(bizHost, dirHost); $("#budgetBody").replaceChildren(wrap);
+  const save = () => { clearTimeout(budSaveTimer); budSaveTimer = setTimeout(saveBudgetAll, 600); renderBudget(); };
   const amount = v => { const x = parseFloat(String(v).replace(/[^0-9.\-]/g, "")); return isFinite(x) ? Math.round(x * 100) / 100 : 0; };
-  const insertAt = g => lines.reduce((at, r, i) => r.group === g ? i + 1 : at, lines.length);
-  const sums = {};
-  const groups = BUD_GROUPS[mode].map(([g, kind]) => {
-    const mine = lines.filter(r => r.group === g), ts = mine.map(typ);
-    const bt = mine.reduce((a, r) => a + r.amount, 0), tt = ts.reduce((a, t) => a + (t || 0), 0), has = ts.some(t => t != null); sums[g] = { b: bt, t: tt };
-    // the group's difference only counts lines that have a normal month to compare with
-    const bm = mine.reduce((a, r, k) => a + (ts[k] == null ? 0 : r.amount), 0);
-    return { label: g, rows: mine, head: [money(bt), has ? money(tt) : "", has ? diff(bm, tt, kind) : ""],
-      add: (c, v) => { if (c === 0) { const t = typical(kind, lc(v)); lines.splice(insertAt(g), 0, { group: g, line: lc(v), amount: t ? Math.round(t / 10) * 10 : 0 }); } else lines.splice(insertAt(g), 0, { group: g, line: "new line", amount: amount(v) }); return true; } };
-  });
-  const after = [];
-  if (personal) {
-    const s = sums, needB = s.spending.b + s.saving.b, needT = s.spending.t + s.saving.t, lo = s.income.b - needB;
-    after.push(["left over", { t: money(lo), cls: lo < 0 ? "r" : "" }, money(s.income.t - needT), diff(lo, s.income.t - needT, "in")]);
-    // what the company needs to pay you: everything you spend and put aside, less income from anywhere else
-    const other = lines.filter(r => r.group === "income" && !/salary|dividend|director/.test(r.line)).reduce((a, r) => a + r.amount, 0);
-    after.push(["pay yourself", money(needB - other), "", ""]);
-  } else { const pb = sums.revenue.b - sums.costs.b, pt = sums.revenue.t - sums.costs.t; after.push(["profit", { t: money(pb), cls: pb < 0 ? "r" : "" }, money(pt), diff(pb, pt, "in")]); }
-  sheetGrid({ host: $("#budgetBody"), cls: "budget", state: budSel, render: renderBudget, groups, after,
-    changed: () => { clearTimeout(budSaveTimer); budSaveTimer = setTimeout(() => saveBudget(budLines), 600); },
-    remove: r => lines.splice(lines.indexOf(r), 1),
-    cols: [
-      { label: "", edit: true, show: r => r.line, raw: r => r.line, set: (r, v) => { r.line = lc(v); } },
-      { label: "per month", num: true, edit: true, cleared: "0", show: r => money(r.amount), raw: r => String(r.amount), set: (r, v) => { r.amount = amount(v); } },
-      { label: "normal month", num: true, title: "the middle month of " + mo(win.from) + " – " + mo(win.to), show: r => { const t = typ(r); return t == null ? "" : money(t); } },
-      { label: "difference", num: true, show: r => diff(r.amount, typ(r), kindOf[r.group]) }
+  const biz = budLinesFor("business"), dir = budLinesFor("personal");
+  const pay = name => dir.filter(r => r.group === "income" && new RegExp(name).test(r.line)).reduce((a, r) => a + r.amount, 0);
+  const salary = pay("salary|director"), dividends = pay("dividend");
+  let ctRow = biz.find(r => r.group === "tax" && r.line === "corporation tax rate");
+  if (!ctRow) { ctRow = { group: "tax", line: "corporation tax rate", amount: 12.5 }; biz.push(ctRow); }
+  const ct = ctRow.amount / 100;
+  // a line: the amount you set, and in brackets what a normal month looked like
+  const typOf = (mode, kind, r) => typical(kind, r.line, mode);
+  const normal = t => t == null ? "" : money(t);
+  const cols = (mode, kindOf) => [
+    { side: "left", edit: true, show: r => r.line, raw: r => r.line, set: (r, v) => { r.line = lc(v); } },
+    { side: "right", edit: true, num: true, cleared: "0", show: r => money(r.amount), raw: r => String(r.amount), set: (r, v) => { r.amount = amount(v); } },
+    { side: "right", wrap: true, cls: "sub", show: r => normal(typOf(mode, kindOf[r.group], r)) }
+  ];
+  const groupOf = (mode, lines, g, kind, extraRows) => {
+    const mine = lines.filter(r => r.group === g), ts = mine.map(r => typOf(mode, kind, r)), has = ts.some(t => t != null);
+    const bt = mine.reduce((a, r) => a + r.amount, 0) + (extraRows || 0), tt = ts.reduce((a, t) => a + (t || 0), 0);
+    const insertAt = lines.reduce((at, r, i) => r.group === g ? i + 1 : at, lines.length);
+    return { label: g, rows: mine, total: bt, head: { right: [money(bt)].concat(has ? [{ t: "(" + money(tt) + ")", cls: "sub" }] : []) },
+      add: (c, v) => { if (c === 0) { const t = typical(kind, lc(v), mode); lines.splice(insertAt, 0, { group: g, line: lc(v), amount: t ? Math.round(t / 10) * 10 : 0 }); } else lines.splice(insertAt, 0, { group: g, line: "new line", amount: amount(v) }); return true; } };
+  };
+
+  // the business: revenue, costs (with your salary), profit, its tax, what's left, your dividends, what stays in the company
+  const bk = { revenue: "in", costs: "out" };
+  const rev = groupOf("business", biz, "revenue", "in"), cost = groupOf("business", biz, "costs", "out");
+  const pbt = rev.total - cost.total - salary, tax = Math.max(0, pbt) * ct, pat = pbt - tax, kept = pat - dividends;
+  const ctLine = biz.indexOf(ctRow);
+  leadGrid({ host: bizHost, key: "business budget", cls: "budget", state: budSel.business, render: renderBudget, changed: save, remove: r => biz.splice(biz.indexOf(r), 1),
+    cols: cols("business", bk), groups: [rev, cost],
+    lines: [
+      { at: "before", label: "business budget", cls: "title" },
+      { label: "your salary (from the director budget)", right: [money(salary)], cls: "sub" },
+      { label: "profit before tax", right: [{ t: money(pbt), cls: pbt < 0 ? "r" : "g" }] },
+      { label: "corporation tax at " + (Math.round(ct * 1000) / 10) + "%", right: [{ t: money(-tax), cls: "r" }], ct: true },
+      { label: "profit after tax", right: [{ t: money(pat), cls: pat < 0 ? "r" : "g" }] },
+      { label: "dividends to you (from the director budget)", right: [money(-dividends)], cls: "sub" },
+      { label: "left in the company", right: [{ t: money(kept), cls: kept < 0 ? "r" : "g" }] }
     ] });
+  // the corporation tax rate is typed into its own line
+  const ctEl = [...bizHost.querySelectorAll(".lead.hd")].find(d => /^corporation tax at/.test(d.textContent));
+  if (ctEl) { const l = ctEl.querySelector(".lv"); l.replaceChildren("corporation tax at "); const v = el("span", "v rate", (Math.round(ct * 1000) / 10) + "%"); l.append(v);
+    v.onclick = () => { const input = el("input", "cell-in num"); input.value = String(ctRow.amount); input.style.width = "6ch"; v.replaceWith(input); input.focus(); input.select();
+      let done = false; const fin = ok => { if (done) return; done = true; const x = amount(input.value); if (ok && x >= 0 && x < 100 && x !== ctRow.amount) { ctRow.amount = x; save(); } else renderBudget(); };
+      input.onkeydown = e => { if (e.key === "Enter") fin(true); if (e.key === "Escape") fin(false); e.stopPropagation(); }; input.onblur = () => fin(true); }; }
+  void ctLine;
+
+  // you, as director: what you take from the company, the tax on it, what you spend and save, and the cheapest way to fund it
+  const dk = { income: "in", spending: "out", saving: "save" };
+  const inc = groupOf("personal", dir, "income", "in"), spend = groupOf("personal", dir, "spending", "out"), saveG = groupOf("personal", dir, "saving", "save");
+  const other = inc.total - salary - dividends, t = directorTax(salary + dividends), home = inc.total - t.total, left = home - spend.total - saveG.total;
+  const need = spend.total + saveG.total - other, gross = grossFor(need);
+  // the same take-home costs the company less as salary: salary comes off its profit before its tax, dividends after
+  const costNow = salary + dividends / (1 - ct), costSalary = gross, costDiv = gross / (1 - ct);
+  leadGrid({ host: dirHost, key: "director budget", cls: "budget", state: budSel.personal, render: renderBudget, changed: save, remove: r => dir.splice(dir.indexOf(r), 1),
+    cols: cols("personal", dk), groups: [inc, spend, saveG],
+    lines: [
+      { at: "before", label: "director budget", cls: "title" },
+      { label: "income tax, usc and prsi", right: [{ t: money(-t.total), cls: "r" }], title: "income tax " + money(t.it) + ", usc " + money(t.usc) + ", prsi " + money(t.prsi) + " a month, at " + IE_TAX.year + " rates" },
+      { label: "take-home", right: [{ t: money(home), cls: home < 0 ? "r" : "g" }] },
+      { label: "left over", right: [{ t: money(left), cls: left < 0 ? "r" : "g" }] },
+      { label: "to cover spending and saving, pay yourself", right: [{ t: money(gross), cls: "" }] },
+      { label: "as salary it costs the company", right: [money(costSalary)] },
+      { label: "as dividends it costs the company", right: [money(costDiv)] },
+      { label: "your current split costs the company", right: [{ t: money(costNow), cls: costNow > costSalary + 0.5 && Math.abs(gross - salary - dividends) < 1 ? "r" : "" }] }
+    ] });
+  // spending lines are what the summary's budget compares against
+  void dk;
 }
 
 /* ---------- filings: grouped by the job each one belongs to, kept on a "filing log" tab ----------
@@ -1202,25 +1278,25 @@ async function saveFilings() {
     await refreshTab(t); status("saved");
   } catch (e) { status(e.expired ? "signed out. sign in again to save." : e.message); }
 }
-// four small tables, two side by side: the closing work beside the uk company's history, the irish company beside self assessment
+// four groups, two side by side: the closing work beside the uk company's history, the irish company beside self assessment
 function renderFilingList() {
   const log = filingLog(), today = iso(new Date()), host = $("#filingList");
   const save = () => { clearTimeout(filSaveTimer); filSaveTimer = setTimeout(saveFilings, 600); renderFilings(); };
   const cols = [
-    { label: "", toggle: f => { f.done = !f.done; f.submitted = f.done ? (f.submitted || today) : ""; if (f.done) f.status = "done"; else if (f.status === "done") f.status = "to do"; },
-      show: f => ({ t: "", cls: "tick" + (f.done ? " on" : "") }) },
-    { label: "", edit: true, show: f => ({ t: f.filing, cls: f.done ? "struck" : isLate(f, today) ? "r" : "" }), raw: f => f.filing, set: (f, v) => { f.filing = lc(v); } },
-    { label: "period", edit: true, show: f => f.period, raw: f => f.period, set: (f, v) => { f.period = lc(v); } },
-    { label: "date", edit: true, show: f => { const d = f.done ? f.submitted : f.due; return { t: d ? longDate(d) : "", cls: isLate(f, today) && f.due ? "r" : "" }; },
+    { side: "left", toggle: f => { f.done = !f.done; f.submitted = f.done ? (f.submitted || today) : ""; if (f.done) f.status = "done"; else if (f.status === "done") f.status = "to do"; },
+      show: f => ({ t: "", cls: f.done ? "on" : "" }) },
+    { side: "left", edit: true, show: f => ({ t: f.filing, cls: f.done ? "struck" : isLate(f, today) ? "r" : "" }), raw: f => f.filing, set: (f, v) => { f.filing = lc(v); } },
+    { side: "left", edit: true, cls: "sub", show: f => f.period, raw: f => f.period, set: (f, v) => { f.period = lc(v); } },
+    { side: "right", edit: true, show: f => { const d = f.done ? f.submitted : f.due; return { t: d ? longDate(d) : "", cls: isLate(f, today) && f.due ? "r" : "" }; },
       raw: f => { const d = f.done ? f.submitted : f.due; return d ? longDate(d) : ""; }, set: (f, v) => { if (f.done) f.submitted = dateOf(v); else f.due = dateOf(v); } },
-    { label: "note", edit: true, show: f => f.note, raw: f => f.note, set: (f, v) => { f.note = lc(v); } }
+    { side: "right", edit: true, wrap: true, cls: "sub", show: f => f.note, raw: f => f.note, set: (f, v) => { f.note = lc(v); } }
   ];
   const wrap = el("div", "filing-grid");
   FILING_GROUPS.forEach(g => {
     const box = el("div"); wrap.append(box);
     filSel[g] = filSel[g] || { r: -1, c: 1 };
-    const draw = () => { const rows = log.filter(f => f.group === g), left = rows.filter(f => !f.done).length; return sheetGrid({ host: box, cls: "filings", state: filSel[g], render: draw, cols,
-      groups: [{ label: g, rows, head: ["", { t: left ? left + " left" : "all done", cls: left ? "" : "g" }, ""],
+    const draw = () => { const rows = log.filter(f => f.group === g), left = rows.filter(f => !f.done).length; return leadGrid({ host: box, key: "filings " + g, cls: "filings", state: filSel[g], render: draw, cols,
+      groups: [{ label: g, rows, head: { right: [{ t: left ? left + " left" : "all done", cls: left ? "" : "g" }] },
         add: (c, v) => { const f = { group: g, filing: "", period: "", due: "", done: false, submitted: "", note: "", status: "to do" }; cols[c].set(f, v); if (!f.filing) f.filing = "new filing"; log.push(f); return true; } }],
       rowCls: f => f.done ? "done" : "", rowId: f => String(log.indexOf(f)),
       changed: save, remove: f => log.splice(log.indexOf(f), 1) }); };
@@ -1232,7 +1308,7 @@ function renderFilingList() {
 // a filing clicked anywhere scrolls to it in the filings section
 function openFiling(row) {
   if (view !== "dashboard") showView("dashboard");
-  const r = $('#filingList tr[data-row="' + row + '"]'); if (!r) return;
+  const r = $('#filingList [data-row="' + row + '"]'); if (!r) return;
   r.scrollIntoView({ block: "center" }); r.classList.add("flash"); setTimeout(() => r.classList.remove("flash"), 2500);
 }
 function renderMore() { renderBudget(); renderFilingList(); }
