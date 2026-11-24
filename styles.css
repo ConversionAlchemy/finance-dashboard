@@ -222,6 +222,16 @@ main[hidden] { display: none; }
   .stmt td.n { width: 26mm; text-align: right; padding-left: 8mm; }
   .stmt td.now { font-weight: 700; }
   .stmt tr.head td { padding-bottom: 6pt; }
+  .doc-t tr.hdr td, .doc-t tr.grp td, .doc-f tr.grp td { font-style: italic; }
+  .doc-t tr.grp td { padding-top: 10pt; }
+  .doc-t tr.tot.first td { padding-top: 12pt; }
+  .doc-t tr.tot td:first-child { font-style: italic; }
+  .doc h3 { margin: 16pt 0 4pt; font-size: 11pt; font-weight: 700; }
+  .doc-f { table-layout: fixed; }
+  .doc-f td { padding-right: 4mm !important; vertical-align: top !important; }
+  .doc-f td:nth-child(1) { width: 36%; } .doc-f td:nth-child(2) { width: 15%; white-space: nowrap; } .doc-f td:nth-child(3) { width: 21%; white-space: nowrap; }
+  .doc-f tr.grp td { padding-top: 6pt; }
+  .doc-f tr.late td { color: #c2361b; }
   .stmt tr.gap td { height: 10pt; }
   .stmt tr.sub td { font-weight: 700; padding-top: 6pt; }
   .stmt tr.ind td:first-child { padding-left: 6mm; }
@@ -462,3 +472,25 @@ dialog.paste .actions .primary { font-weight: 700; outline: 2px solid var(--ink)
 dialog.paste .r { margin: 8px 0 0; }
 .lgrid .lead.fixed, .lgrid .lead.fixed * { color: var(--grey); }
 .lgrid.filings .lead.hd > .dots { visibility: hidden; }
+/* budget: a plan column and an average column, each the same width, right-aligned */
+.lgrid.budget .lead > .rv { max-width: none; overflow: visible; }
+.lgrid.budget .lead > .rv > .v { display: inline-block; width: 84px; text-align: right; }
+.lgrid.budget .lead.title > .rv > .v.colh { font-weight: 400; font-style: italic; }
+.lgrid.budget .lead.title > .rv > button { margin-left: 12px; }
+.lgrid.budget .lead.blank > .rv .v.cell { min-width: 0; }
+/* filings in columns: tick, filing, period, date, note, all left-aligned; red when it's to do or overdue; done is struck through */
+.lgrid.cols .lead.cells { display: grid; grid-template-columns: 20px minmax(0, 5fr) minmax(0, 3fr) minmax(0, 3fr) minmax(0, 5fr); gap: 0 10px; align-items: baseline; }
+.lgrid.cols .lead.cells > .lv, .lgrid.cols .lead.cells > .rv { display: contents; }
+.lgrid.cols .lead.cells > .dots { display: none; }
+.lgrid.cols .lead.cells .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; min-width: 0; }
+.lgrid.cols .lead.cells .v.tick { justify-self: start; }
+.lgrid.cols .lead.blank .v.cell { min-width: 0; display: block; }
+.lgrid.cols .lead.hd > .dots { visibility: hidden; }
+.lgrid.cols .lead.late, .lgrid.cols .lead.late * { color: var(--rtext); }
+.lgrid.cols .lead.late .v.tick { border-color: var(--rtext); }
+.lgrid.cols .lead.done, .lgrid.cols .lead.done * { color: var(--ink) !important; }
+.lgrid.cols .lead.done .v:not(.tick) { text-decoration: line-through; }
+.lgrid.cols .lead.done .v.tick { border-color: var(--ink); }
+.lgrid.cols .lead.done .v.tick.on { background-color: var(--ink); }
+.lgrid .reveal { margin-top: 6px; padding: 0; border: 0; background: none; color: var(--ink); text-decoration: underline; cursor: pointer; }
+.lgrid .reveal:hover { color: var(--grey); }
