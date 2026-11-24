@@ -374,3 +374,22 @@ html.fit .sheet-scroll { max-height: none !important; }
 .wf-col.link { cursor: pointer; }
 .wf-col.link:hover .wf-lab, .wf-col.link:hover .wf-lab *, .wf-col.link:hover .wf-pct { color: var(--grey); }
 .view > .sec:last-child { margin-bottom: 0; }
+
+/* one size for every control: 150 wide, 40 tall; text that doesn't fit ends in "…"
+   (icon buttons, the step arrows and the search box keep their own widths) */
+:root { --bw: 150px; --top-h: 64px; }
+.tabs, .seg.mode { height: 40px; }
+.tabs button, .seg button:not(.prev):not(.next), .filters .box:not(.icon):not(.chip):not(:has(input)), .sheet-head .box:not(.icon):not(.chip):not(input), .step label {
+  width: var(--bw); min-width: var(--bw); max-width: var(--bw); flex: none; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.filters .box:has(> #scopePick) { width: var(--bw); }
+.step label select, .filters .box > select { width: 100%; min-width: 0; text-overflow: ellipsis; }
+.step .prev, .step .next { width: 40px; padding: 0; }
+.sheet-head select.box { width: var(--bw); }
+.sheet-head .chip { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the name fills the label column, so business/personal lines up with the first control and the text below it */
+.brand { gap: 0; }
+.brand-button { box-sizing: border-box; width: 174px; padding-right: 12px; margin-right: 0; display: flex; align-items: center; gap: 4px; overflow: hidden; }
+.brand-button b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* controls sit on the right, next to export, as on the transactions page */
+.dash-main .filters > b, .view.fc .filters > b { flex: 1; margin-right: 0; }
+.filters #pdfButton { margin-left: 0; }
