@@ -434,3 +434,30 @@ html.fit .sheet-scroll { max-height: none !important; }
 .lgrid .lead.hd.tot { margin: 0; }
 .lgrid .lead.hd.tot.first { margin-top: 8px; }
 .lgrid .wrap:has(> .sub) { color: var(--grey); }
+
+/* small export buttons in each box */
+.box.icon.mini { width: 28px; min-width: 28px; height: 28px; padding: 0; display: inline-grid; place-items: center; vertical-align: middle; }
+.box.icon.mini svg { width: 16px; height: 16px; }
+.box.icon.mini.done { color: var(--gtext); }
+.cap { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.cap > .mt { margin: 0; }
+#filingList { position: relative; }
+#filingList > .corner { position: absolute; top: -4px; right: 0; z-index: 1; }
+#filingList .filing-grid > div:nth-child(2) .lgrid > .lead:first-child { padding-right: 40px; }
+.lgrid .lead.title { align-items: center; }
+.lgrid .lead.title > .rv { overflow: visible; }
+/* paste from ai and undo under the budget's name */
+.sec-label { display: grid; align-content: start; gap: 10px; }
+.sec-label .tools { display: grid; gap: 8px; margin-top: 8px; }
+.sec-label .tools .box { height: 40px; width: var(--bw); }
+.sec-label .tools .box:disabled { color: var(--hair); cursor: default; }
+dialog.paste { margin: auto; width: min(640px, calc(100vw - 48px)); padding: 20px; border: 1px solid var(--hair); background: var(--card); color: var(--ink); }
+dialog.paste::backdrop { background: var(--veil); }
+dialog.paste textarea { box-sizing: border-box; width: 100%; height: 50vh; padding: 10px 12px; border: 1px solid var(--hair); background: var(--card); color: var(--ink); font: inherit; resize: vertical; }
+dialog.paste textarea:focus { outline: 2px solid var(--ink); outline-offset: 2px; }
+dialog.paste .actions { display: flex; gap: 8px; margin-top: 12px; }
+dialog.paste .actions .spacer { flex: 1; }
+dialog.paste .actions .box { height: 40px; width: var(--bw); }
+dialog.paste .actions .primary { font-weight: 700; outline: 2px solid var(--ink); outline-offset: 2px; }
+dialog.paste .r { margin: 8px 0 0; }
+.lgrid .lead.fixed, .lgrid .lead.fixed * { color: var(--grey); }

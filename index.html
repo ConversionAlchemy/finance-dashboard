@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=PT+Sans:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1795511182">
+  <link rel="stylesheet" href="styles.css?v=1795511435">
 </head>
 <body>
 
@@ -51,7 +51,7 @@
         <div class="sec summary"><b>summary</b><div class="split"><div id="summary"></div><div id="monthChart"></div></div></div>
         <div class="sec"><b id="flowTitle">revenue and costs</b><div class="split"><div class="pick" id="flowList"></div><div id="flowDetail"></div></div></div>
         <div class="sec"><b>cash</b><div class="split"><div class="pick" id="cashList"></div><div id="cashDetail"></div></div></div>
-        <div class="sec"><b>budget</b><div id="budgetBody"></div></div>
+        <div class="sec"><div class="sec-label"><b>budget</b><div class="tools" id="budgetTools"></div></div><div id="budgetBody"></div></div>
         <div class="sec"><b>filings</b><div id="filingList"></div></div>
       </div>
     </section>
@@ -62,15 +62,20 @@
     </div>
     <aside class="side-col"><div class="side" id="filingsBox"></div><div class="side" id="attention"></div><div class="side" id="tasksBox"></div></aside>
   </main>
+  <dialog class="paste" id="budPaste" aria-label="paste from ai">
+    <textarea id="budPasteText" spellcheck="false" aria-label="budget"></textarea>
+    <p class="r" id="budPasteError" hidden></p>
+    <div class="actions"><button class="box" id="budPasteCopy" type="button">copy for ai</button><span class="spacer"></span><button class="box" id="budPasteCancel" type="button">cancel</button><button class="box primary" id="budPasteApply" type="button">apply</button></div>
+  </dialog>
   <footer class="mark">ConversionAlchemy.com</footer>
 
   <div class="modal" id="txModal" hidden>
     <div class="modal-box">
-      <div class="modal-hd"><b id="txmTitle"></b><i id="txmCount"></i><button class="btn" id="txmCopy" type="button">copy</button><button class="btn" id="txmOpen" type="button">open in transactions</button><button class="btn" id="txmClose" type="button">close</button></div><div class="sheet-head" id="txmHead"></div>
+      <div class="modal-hd"><b id="txmTitle"></b><i id="txmCount"></i><button class="box icon mini" id="txmCopy" type="button" title="export" aria-label="export"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M7 7.5H4.5v9h11v-9H13"/><path d="M10 12.5V2.5M6.5 6L10 2.5 13.5 6"/></svg></button><button class="btn" id="txmOpen" type="button">open in transactions</button><button class="btn" id="txmClose" type="button">close</button></div><div class="sheet-head" id="txmHead"></div>
       <div class="modal-body"><table class="grid tx" id="txmGrid"></table><div id="txmMore"></div></div>
     </div>
   </div>
   <div id="print" class="print"></div>
-  <script src="app.js?v=1795511182"></script>
+  <script src="app.js?v=1795511435"></script>
 </body>
 </html>
