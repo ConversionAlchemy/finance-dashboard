@@ -328,15 +328,12 @@ table.plan tr.head td { padding-top: 18px; }
 table.plan tr.head td:first-child { font-style: italic; }
 table.plan tr.head.line td { background-position: 0 calc(100% - 10px); }
 table.plan tr.head:first-child td { padding-top: 4px; }
-table.plan tr.total td { padding-top: 6px; }
-table.plan tr.total td.num { border-top: 1px solid var(--ink); }
-table.plan tr.line td, table.plan tr.note td { background-image: radial-gradient(circle, var(--dots) 0.7px, transparent 1px); background-size: 4px 4px; background-repeat: repeat-x; background-position: 0 calc(50% + 3px); }
-table.plan tr.line td > span, table.plan tr.note td > span { padding-right: 8px; background: var(--card); }
-table.plan tr.line td.num > span, table.plan tr.note td.num > span { padding: 0 0 0 8px; }
-table.plan tr.note td.num > span:empty { padding: 0; }
+table.plan tr.line td { background-image: radial-gradient(circle, var(--dots) 0.7px, transparent 1px); background-size: 4px 4px; background-repeat: repeat-x; background-position: 0 calc(50% + 3px); }
+table.plan tr.line td > span { padding-right: 8px; background: var(--card); }
+table.plan tr.line td.num > span { padding: 0 0 0 8px; }
 /* the dots run unbroken across the row; each figure keeps a small gap either side of it */
-table.plan tr.line td.num > span, table.plan tr.note td.num > span { padding: 0 12px 0 8px; }
-table.plan tr.line td.num:last-child > span, table.plan tr.note td.num:last-child > span { padding-right: 0; }
+table.plan tr.line td.num > span { padding: 0 12px 0 8px; }
+table.plan tr.line td.num:last-child > span { padding-right: 0; }
 table.plan th.num:not(:last-child), table.plan tr:not(.line):not(.note) td.num:not(:last-child) { padding-right: 12px; }
 table.plan td.num > span:empty { display: none; }
 table.plan td.editable { cursor: text; }
@@ -347,8 +344,6 @@ table.plan td.editable:hover { color: var(--grey); }
 /* the watermark at the foot of every screen: plain text, not a link */
 .mark { padding: 14px 0 16px; text-align: center; font-weight: 400; color: var(--grey); user-select: none; }
 /* forecast: the table and, beside it, plan against actual as bars */
-.fc-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 3fr); gap: 48px; align-items: start; }
-@media (max-width: 1100px) { .fc-grid { grid-template-columns: minmax(0, 1fr); } }
 .chart .col .hov, .chart .sub .hov { display: none; }
 .chart .col:hover .hov, .chart .sub:hover .hov { display: inline; }
 html.fit, html.fit body { overflow: hidden; }
@@ -391,5 +386,20 @@ html.fit .sheet-scroll { max-height: none !important; }
 .brand-button { box-sizing: border-box; width: 174px; padding-right: 12px; margin-right: 0; display: flex; align-items: center; gap: 4px; overflow: hidden; }
 .brand-button b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* controls sit on the right, next to export, as on the transactions page */
-.dash-main .filters > b, .view.fc .filters > b { flex: 1; margin-right: 0; }
+.dash-main .filters > b { flex: 1; margin-right: 0; }
 .filters #pdfButton { margin-left: 0; }
+
+/* budget and filings, in tabs at the bottom of the dashboard */
+.sec.more #morePick { margin-bottom: 18px; }
+#moreBody > .mt { display: block; margin-bottom: 8px; }
+table.budget { width: 100%; }
+table.budget td.editable { cursor: text; }
+table.budget td.editable:hover span { color: var(--grey); }
+table.budget .del { margin-left: 8px; padding: 0 4px; border: 0; background: none; color: var(--grey); visibility: hidden; cursor: pointer; }
+table.budget tr:hover .del { visibility: visible; }
+table.budget .del:hover { color: var(--rtext); }
+table.budget tr.add td { padding: 2px 0 14px; }
+table.budget .add-line { padding: 0; border: 0; background: none; color: var(--grey); font-style: italic; cursor: pointer; }
+table.budget .add-line:hover { color: var(--ink); }
+table.budget input.inline { width: 100%; max-width: 260px; }
+#moreBody .lead.flash { background: var(--need); }

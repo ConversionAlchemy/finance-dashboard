@@ -9,7 +9,6 @@ const SHEETS = "https://sheets.googleapis.com/v4/spreadsheets/";
 const FILE_KEY = "ca-finance-file";
 const VIEW_KEY = "ca-finance-view";
 const SKIP_TABS = ["dashboard"];          // the sheet's own dashboard tab; this app's dashboard replaces it
-const HIDE_TABS = ["tasks"];             // loaded for needs attention, not shown as a tab
 const WRONG_ACCOUNT = ["director's loan", "business costs paid personally"];
 const SYMBOL = { GBP: "£", EUR: "€", USD: "$" };
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
@@ -245,13 +244,7 @@ function buildModel() {
   });
   rows.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
   const tasks = tabByName("tasks"); const filings = tabByName("filings");
-  const inv = tabByName("investments"), invRows = inv ? inv.display : [], invVal = k => { const i = findRow(invRows, [k]); return i < 0 ? "" : String((invRows[i] || [])[(invRows[i] || []).map(lc).indexOf(k) + 1] || ""); };
-  const investments = inv ? {
-    monthly: num(invVal("invest per month")), starts: invVal("starts").slice(0, 10), years: num(invVal("years")) || 5,
-    watch: block(invRows, ["name", "ticker", "price now", "today"]).map(([n, t, p, d]) => ({ name: lc(n), ticker: String(t || ""), price: lc(p) === "private" ? null : num(p), priv: lc(p) === "private", today: String(d || "").trim() ? parseFloat(d) / 100 : null })),
-    holdings: block(invRows, ["date", "ticker", "shares", "paid", "price now", "value now"]).filter(r => lc(r[1])).map(([d, t, sh, pd, pr, v]) => ({ date: String(d).slice(0, 10), ticker: String(t).toUpperCase(), shares: num(sh), paid: num(pd), price: num(pr), value: num(v) || num(pd) }))
-  } : null;
-  data = { rows, cols, head, catGroup, cats: Object.keys(catGroup), ent, tasks, filings, fx, fxCache: {}, investments };
+  data = { rows, cols, head, catGroup, cats: Object.keys(catGroup), ent, tasks, filings, fx, fxCache: {} };
   applyCurrency();
 }
 
@@ -421,8 +414,6 @@ document.addEventListener("keydown", e => {
 function modeFilter() { return dash.mode === "personal" ? { entity: "personal", entities: null } : { entity: "", entities: ["ie ltd", "uk ltd"] }; }
 function renderMode() {
   document.documentElement.classList.toggle("dark", dash.mode === "personal");
-  const ft = [...$("#tabs").children].find(b => lc(b.dataset.view) === "forecast"); if (ft) ft.textContent = dash.mode === "personal" ? "budget" : "forecast";
-  const it = [...$("#tabs").children].find(b => lc(b.dataset.view) === "investments"); if (it) it.hidden = dash.mode !== "personal";
   const mp = $("#modePick"); mp.innerHTML = "";
   [["business", "business"], ["personal", "personal"]].forEach(([k, t]) => {
     const b = el("button", null, t); b.type = "button"; b.setAttribute("aria-pressed", dash.mode === k);
@@ -430,7 +421,7 @@ function renderMode() {
       if (dash.mode === k) return;
       dash.mode = k; dash.fy = null; dash.month = null; dash.flow = dash.acct = null;
       if (view === "dashboard") renderDashboard();
-      else { renderMode(); if (view.toLowerCase() === "transactions") Object.assign(txFilter, TX_CLEAR, modeFilter()); if (view.toLowerCase() === "forecast") fc.pick = null; showView(view); }
+      else { renderMode(); if (view === "transactions") Object.assign(txFilter, TX_CLEAR, modeFilter()); showView(view); }
     };
     mp.append(b);
   });
@@ -476,7 +467,7 @@ function renderDashboard() {
   renderFlow(rg);
   renderFilings();
   renderCash(rg);
-  renderInvestments();
+  renderMore();
   renderTasks();
   renderAttention();
 }
@@ -502,7 +493,7 @@ function renderSummary(rg) {
   if (personal) {
     // net worth: your cash, plus what the companies owe you on your director's loan (minus what you owe them)
     const loan = c => balance(c, r => ["director's loan", "business costs paid personally"].includes(r.category), ["ie ltd", "uk ltd", "personal"]);
-    const nw = f.cash + loan(rg.to) + investValue(), nwp = rg.kind === "all" ? null : (p.cash || 0) + loan(prevRange(rg).to) + investedBy(prevRange(rg).to);
+    const nw = f.cash + loan(rg.to), nwp = rg.kind === "all" ? null : (p.cash || 0) + loan(prevRange(rg).to);
     cols.push(["net worth", nw, nw < 0 ? "r" : "g", nwp == null ? "" : change(nw, nwp)]);
   }
   // a list like the sections below: each figure coloured, its comparison in brackets after it
@@ -717,11 +708,30 @@ function renderFlow(rg) {
     const s = f.key ? streams.find(x => x.label === f.key) : null;
     const v = s ? s.v : allInc, keepV = s ? s.margin : profit;
     let steps = s ? s.steps : groupBy(outRows, "category").filter(c => c.v < -0.5).sort((a, b) => a.v - b.v);
-    if (!s) { const top = steps.slice(0, 5), r = steps.slice(5).reduce((a, c) => a + c.v, 0); steps = r < -0.5 ? top.concat([{ label: "everything else", v: r }]) : top; }
+    const long = !s && !personal, nTop = long ? 4 : 5;
+    if (!s) { const top = steps.slice(0, nTop), r = steps.slice(nTop).reduce((a, c) => a + c.v, 0); steps = r < -0.5 ? top.concat([{ label: "everything else", v: r }]) : top; }
     title = s ? s.label : w.allRev;
     items = [{ label: s ? (personal ? w.keep : "margin") : w.keep, v: Math.max(0, keepV), keep: true, value: [el("span", keepV < 0 ? "r" : "g", money(keepV)), document.createTextNode(pctOf(keepV, v))] }]
       .concat(steps.map(st => ({ label: catName(st.label), v: -st.v, value: [el("span", "r", money(st.v)), document.createTextNode(pctOf(-st.v, v))], onclick: catClick(st.label) })));
     items.total = { label: w.rev, v }; items.keepV = keepV;
+    if (long) {
+      // past profit: the tax on it, what's left after tax, then where that money went, ending at how much cash went up or down
+      items[0].label = "profit before tax";
+      const fg = figures(rg), afterTax = keepV - fg.tax;
+      const paidOut = -total(sel(rg, r => r.group === "director" && r.category !== "director pay"));
+      const notYet = fg.tax - fg.taxPaid;
+      const day = new Date(rg.from + "T00:00:00"); day.setDate(day.getDate() - 1);
+      const change = balance(rg.to) - (rg.kind === "all" ? 0 : balance(iso(day)));
+      const other = change - (afterTax - paidOut + notYet);
+      items.after = [
+        { label: "tax (estimate)", v: -fg.tax },
+        { label: "after tax", sub: true },
+        { label: "paid to you", v: -paidOut, onclick: () => openTx({ group: "director", notIn: ["director pay"] }, "paid to you") },
+        { label: notYet >= 0 ? "tax not paid yet" : "earlier tax paid", v: notYet },
+        { label: "transfers and timing", v: other },
+        { label: change >= 0 ? "added to cash" : "taken from cash", sub: true }
+      ].filter(x => x.sub || Math.abs(x.v) >= 0.5);
+    }
   } else {
     kind = "cost";
     const pick = f.key ? costRows.filter(r => r.category === f.key) : costRows;
@@ -772,7 +782,14 @@ function waterfall(items) {
   let top = v;
   steps.forEach(s => { cols.push({ label: s.label, from: top, to: top - s.v, c: s.c, pct: pct(s.v / v), value: money(-s.v), cls: "r", onclick: s.onclick }); top -= s.v; });
   cols.push({ label: keep.label, from: 0, to: k, c: k < 0 ? RED : GREEN, pct: pct(k / v), value: money(k), cls: k < 0 ? "r" : "g" });
-  return colChart(cols, Math.min(0, top, k), v);
+  // money that carries on past profit: steps up (light green) or down (light red), and subtotals standing on the baseline
+  let lo = Math.min(0, top, k), hi = v; top = k;
+  (items.after || []).forEach(a => {
+    if (a.sub) cols.push({ label: a.label, from: 0, to: top, c: top < 0 ? RED : GREEN, pct: pct(top / v), value: money(top), cls: top < 0 ? "r" : "g" });
+    else { cols.push({ label: a.label, from: top, to: top + a.v, c: a.v < 0 ? "#FFB4A0" : "#9BE49C", pct: pct(Math.abs(a.v) / v), value: (a.v < 0 ? "" : "+") + money(a.v), cls: a.v < 0 ? "r" : "g", onclick: a.onclick }); top += a.v; }
+    lo = Math.min(lo, top); hi = Math.max(hi, top);
+  });
+  return colChart(cols, lo, hi);
 }
 
 // a cost category broken down: one column each, tallest first
@@ -907,248 +924,146 @@ function renderFilings() {
   });
   if (!any) box.append(el("p", "empty", "nothing to file"));
 }
-function openFiling(row) {
-  const fl = data.filings; if (!fl) return;
-  showView(fl.name);
-  const tr = $("#grid tbody").children[row]; if (!tr) return;
-  tr.scrollIntoView({ block: "center" }); tr.classList.add("flash"); setTimeout(() => tr.classList.remove("flash"), 2500);
-}
 
 
-/* ---------- forecast (business) and budget (personal): inputs live on the forecast tab, the plan is worked out here, in dollars ---------- */
-const FC = {
-  business: { title: "forecast", col: 1, sides: ["revenue", "costs"], inputs: [
-    ["revenue", "retainer income", "retainers per month", "money"], ["revenue", "program price", "program price", "money"], ["revenue", "program sales", "program sales per month", "count"],
-    ["costs", "team", "team", "money"], ["costs", "ad spend", "ads", "money"], ["costs", "software", "software", "money"], ["costs", "other costs", "other costs", "money"],
-    ["costs", "payment fees", "payment fees", "pct"], ["costs", "corporation tax", "corporation tax", "pct"]] },
-  personal: { title: "budget", col: 18, sides: ["income", "spending"], inputs: [
-    ["income", "salary", "salary", "money"], ["income", "dividends", "dividends", "money"], ["income", "other income", "other income", "money"],
-    ["spending", "rent", "rent", "money"], ["spending", "bills", "bills", "money"], ["spending", "groceries", "groceries", "money"], ["spending", "eating out", "eating out", "money"],
-    ["spending", "transport", "transport", "money"], ["spending", "travel", "travel", "money"], ["spending", "everything else", "everything else", "money"]] }
-};
-const fc = { pick: null, sheet: false };
-// your personal budget, per month, from the budget block on the forecast tab
-function monthlyBudget() {
-  const inp = fcInputs(FC.personal); if (!inp) return null;
-  const spend = FC.personal.inputs.filter(x => x[0] === "spending").reduce((a, x) => a + ((inp[x[1]] || {}).v || 0), 0);
-  return spend > 0 ? { spend } : null;
+/* ---------- budget: a monthly target per line, beside what a normal month looks like ----------
+   lines live on a "budget" tab in the sheet (mode, group, line, per month), one row each, added and edited here like a sheet.
+   a line is compared with the category or stream of the same name; a line with no match (investments, say) is just a target. */
+const BUD_GROUPS = { business: [["revenue", "in"], ["costs", "out"]], personal: [["income", "in"], ["spending", "out"], ["saving", "save"]] };
+const bud = { tab: "budget", edit: null };
+function budgetRows() {
+  const t = tabByName("budget"); if (!t) return [];
+  return t.display.map((r, i) => ({ i, mode: lc((r || [])[1]), group: lc((r || [])[2]), line: lc((r || [])[3]), amount: num((r || [])[4]) })).filter(r => r.i > 2 && r.line && (r.mode === "business" || r.mode === "personal"));
 }
-function fcConf() { return FC[dash.mode === "personal" ? "personal" : "business"]; }
-function fcInputs(conf = fcConf()) {
-  const t = tabByName("forecast"), out = {}; if (!t) return null;
-  t.display.forEach((r, i) => { const k = lc((r || [])[conf.col]); if (k && (conf.inputs.some(x => x[1] === k) || k === "start month") && !(k in out)) { const v = String((r || [])[conf.col + 1] || "").trim(); out[k] = { i, raw: v, v: /%$/.test(v) ? parseFloat(v) / 100 : num(v) }; } });
-  return out["start month"] ? out : null;
+// the last 12 full months that have transactions in them (personal bank data can stop earlier than the company's)
+const modeEnts = mode => mode === "personal" ? ["personal"] : ["ie ltd", "uk ltd"];
+function lastTwelve(mode = dash.mode) {
+  const ents = modeEnts(mode), last = data.rows.reduce((m, r) => ents.includes(r.entity) && !r.synthetic && r.date > m ? r.date : m, "");
+  const ref = last ? new Date(last + "T00:00:00") : new Date(), end = new Date(ref.getFullYear(), ref.getMonth(), 0), from = new Date(end.getFullYear(), end.getMonth() - 11, 1);
+  return { from: iso(from), to: iso(end) };
 }
-function fcPlan(inp) {
-  const g = k => (inp[k] || {}).v || 0;
-  if (dash.mode === "personal") {
-    const inc = g("salary") + g("dividends") + g("other income"), parts = FC.personal.inputs.filter(x => x[0] === "spending").map(x => [x[2], g(x[1])]);
-    const costs = parts.reduce((a, p) => a + p[1], 0);
-    return { rev: inc, costs, pbt: inc - costs, keep: inc - costs, sources: [["salary", g("salary")], ["dividends", g("dividends")], ["other income", g("other income")]], all: { label: "all income", v: inc, steps: parts, keep: "saved / invested" }, products: [] };
+function median(xs) { if (!xs.length) return 0; const a = [...xs].sort((x, y) => x - y), m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; }
+// a normal month for a line: the median of the last 12 months, so one big or quiet month doesn't pull it about
+function typical(kind, name, mode = dash.mode) {
+  const ents = modeEnts(mode), rg = lastTwelve(mode), s = new Date(rg.from + "T00:00:00");
+  const fn = kind === "in" ? r => isIncome(r) && (r.stream === name || r.category === name) : r => r.category === name && !isIncome(r);
+  const rows = sel(rg, fn, ents); if (!rows.length) return null;
+  return median(Array.from({ length: 12 }, (_, k) => { const m = iso(addMonths(s, k)).slice(0, 7); return Math.abs(total(rows.filter(r => r.date.slice(0, 7) === m))); }));
+}
+// the first time a mode is opened: one line per stream or category you actually used in the last 12 months, set at its normal month
+function seedBudget(mode) {
+  const ents = modeEnts(mode), rg = lastTwelve(mode), out = [];
+  BUD_GROUPS[mode].forEach(([g, kind]) => {
+    if (kind === "save") return;
+    const rows = sel(rg, kind === "in" ? isIncome : isCost, ents), names = new Map();
+    rows.forEach(r => { const n = kind === "in" && mode === "business" ? (r.stream || r.category) : r.category; if (n) names.set(n, (names.get(n) || 0) + Math.abs(r.v)); });
+    [...names.entries()].sort((x, y) => y[1] - x[1]).forEach(([n]) => { const t = typical(kind, n, mode); if (t != null) out.push({ mode, group: g, line: n, amount: Math.round(t / 10) * 10 }); });
+  });
+  return out;
+}
+function budgetLines(mode = dash.mode) { const rows = budgetRows().filter(r => r.mode === mode); return rows.length ? rows : seedBudget(mode); }
+// what you spend in a month on your personal budget (the dashboard's budget line)
+function monthlyBudget() { const sp = budgetLines("personal").filter(r => r.group === "spending").reduce((a, r) => a + r.amount, 0); return sp > 0 ? { spend: sp } : null; }
+async function saveBudget(lines) {
+  // this mode's lines are rewritten; the other mode's are kept as they are
+  const other = dash.mode === "personal" ? "business" : "personal", keep = budgetRows().filter(r => r.mode === other);
+  const rows = lines.map(r => [dash.mode, r.group, r.line, r.amount]).concat(keep.map(r => [r.mode, r.group, r.line, r.amount]));
+  let t = tabByName("budget");
+  const old = t ? t.display.filter((r, i) => i > 2 && (r || []).some(Boolean)).length : 0;
+  while (rows.length < old) rows.push(["", "", "", ""]);
+  const head = [["budget"], [], ["mode", "group", "line", "per month"]];
+  if (TEST) {
+    if (!t) { t = { name: "budget", display: [], raw: [], fmt: [] }; book.tabs.push(t); }
+    t.display = [["", "budget"], [], ["", ...head[2]]].concat(rows.map(r => ["", ...r.map(String)])); t.raw = t.display; return;
   }
-  const ret = g("retainer income"), prog = g("program price") * g("program sales"), rev = ret + prog, rate = g("payment fees");
-  const team = g("team"), ads = g("ad spend"), soft = g("software"), other = g("other costs"), fees = rev * rate;
-  const costs = team + ads + soft + other + fees, pbt = rev - costs, tax = Math.max(0, pbt) * g("corporation tax");
-  return { rev, costs, pbt, tax, keep: pbt - tax, sales: g("program sales"), ads,
-    all: { label: "all products", v: rev, steps: [["team", team], ["ads", ads], ["software", soft], ["other costs", other], ["payment fees", fees], ["corporation tax", tax]], keep: "profit after tax" },
-    products: [{ label: "retainers", v: ret, steps: [["team", team], ["payment fees", ret * rate]] }, { label: "program", v: prog, steps: [["ads", ads], ["payment fees", prog * rate]] }] };
-}
-function renderForecast() {
-  dash.scope = dash.mode === "personal" ? "personal" : (dash.co || "companies");
-  const conf = fcConf(), inp = fcInputs(conf), t = tabByName("forecast"), personal = dash.mode === "personal", w = words();
-  if (!inp) return;
-  $("#fcTitle").textContent = conf.title;
-  const p = fcPlan(inp), start = new Date(((inp["start month"] || {}).raw || iso(new Date())).slice(0, 7) + "-01T00:00:00");
-  const sm = $("#fcStart"); sm.value = iso(start).slice(0, 7);
-  sm.onchange = () => { if (/^\d{4}-\d{2}$/.test(sm.value)) saveInput(t, inp["start month"], sm.value + "-01", conf.col); };
-  $("#fcSheet").onclick = () => { fc.sheet = true; showView("forecast"); };
-
-  renderPlanTable(conf, inp, p, t);
-
-}
-/* the plan next to what actually happened, line by line, for a month, the last 3 months or the year so far */
-const PT_MAP = { rent: ["rent"], bills: ["bills"], groceries: ["groceries"], "eating out": ["eating out"], transport: ["transport"], travel: ["travel", "travel & meals"] };
-function planRange() {
-  const thisMonth = new Date(iso(new Date()).slice(0, 7) + "-01T00:00:00");
-  if (fc.period === "3m") { const a = addMonths(thisMonth, -3); return { from: iso(a), to: iso(monthEnd(addMonths(a, 2))), n: 3, label: "last 3 months" }; }
-  if (fc.period === "year") { const a = new Date(thisMonth.getFullYear(), 0, 1); return { from: iso(a), to: iso(monthEnd(thisMonth)), n: thisMonth.getMonth() + 1, label: "this year" }; }
-  const m = new Date((fc.month || iso(thisMonth).slice(0, 7)) + "-01T00:00:00");
-  return { from: iso(m), to: iso(monthEnd(m)), n: 1, label: MONTHS[m.getMonth()] + " " + m.getFullYear() };
-}
-function renderPlanTable(conf, inp, p, t) {
-  const personal = dash.mode === "personal", rg = planRange(), n = rg.n, today = iso(new Date());
-  // period controls
-  const pp = $("#fcPeriod"); pp.innerHTML = "";
-  const cur = iso(new Date()).slice(0, 7), mm = fc.month || cur;
-  const step = d => { const m = addMonths(new Date(mm + "-01T00:00:00"), d); if (iso(m).slice(0, 7) <= cur) { fc.month = iso(m).slice(0, 7); fc.period = "month"; renderForecast(); } };
-  const prev = el("button", "prev", "‹"), lab = el("button", null, MONTHS[+mm.slice(5) - 1] + " " + mm.slice(0, 4)), next = el("button", "next", "›");
-  [prev, lab, next].forEach(b => (b.type = "button"));
-  prev.onclick = () => step(-1); next.onclick = () => step(1); next.disabled = mm >= cur; lab.onclick = () => { fc.period = "month"; renderForecast(); };
-  lab.setAttribute("aria-pressed", (fc.period || "month") === "month");
-  pp.append(prev, lab, next);
-  [["3m", "last 3 months"], ["year", "this year"]].forEach(([k, l]) => { const b = el("button", null, l); b.type = "button"; b.setAttribute("aria-pressed", fc.period === k); b.onclick = () => { fc.period = k; renderForecast(); }; pp.append(b); });
-
-  const ents = personal ? ["personal"] : ["ie ltd", "uk ltd"], rows = sel(rg, null, ents);
-  const sumCat = cats => -total(rows.filter(r => cats.includes(r.category) && (isCost(r) || r.category === "director pay")));
-  const sumInc = fn => total(rows.filter(r => isIncome(r) && fn(r)));
-  const g = k => (inp[k] || {}).v || 0;
-  const lines = [];  // [kind, label, plan, actual, good: "up"|"down", inputKey, inputKind]
-  if (personal) {
-    lines.push(["head", "income"]);
-    lines.push(["line", "salary", g("salary") * n, sumInc(r => r.category === "salary"), "up", "salary"]);
-    lines.push(["line", "dividends", g("dividends") * n, sumInc(r => r.category === "dividends"), "up", "dividends"]);
-    lines.push(["line", "other income", g("other income") * n, sumInc(r => r.category !== "salary" && r.category !== "dividends"), "up", "other income"]);
-    const ti = lines.slice(1).reduce((a, l) => a + l[2], 0), ta = lines.slice(1).reduce((a, l) => a + l[3], 0);
-    lines.push(["total", "total income", ti, ta, "up"]);
-    lines.push(["head", "spending"]);
-    const spendCats = [...new Set(rows.filter(isCost).map(r => r.category))], mapped = Object.values(PT_MAP).flat();
-    let tp = 0, tsp = 0;
-    FC.personal.inputs.filter(x => x[0] === "spending").forEach(([, key, label]) => {
-      const act = key === "everything else" ? sumCat(spendCats.filter(c => !mapped.includes(c))) : sumCat(PT_MAP[key] || [key]);
-      lines.push(["line", label, g(key) * n, act, "down", key]); tp += g(key) * n; tsp += act;
-    });
-    lines.push(["total", "total spending", tp, tsp, "down"]);
-    lines.push(["total", "balance", ti - tp, ta - tsp, "up"]);
-    const iv = data.investments;
-    if (iv) lines.push(["line", "invested", iv.monthly * n, iv.holdings.filter(h => h.date >= rg.from && h.date <= rg.to).reduce((a, h) => a + h.paid, 0), "up"]);
-  } else {
-    const ms = streamMargins(rg), sm = k => ms.find(x => x.label === k) || { v: 0, margin: 0 };
-    lines.push(["head", "revenue"]);
-    lines.push(["line", "retainers", g("retainer income") * n, sm("retainers").v, "up", "retainer income"]);
-    lines.push(["line", "program", g("program price") * g("program sales") * n, sm("program").v, "up"]);
-    lines.push(["note", "program price", g("program price"), null, "", "program price"]);
-    lines.push(["note", "program sales a month", g("program sales"), null, "", "program sales", "count"]);
-    lines.push(["line", "other revenue", 0, ms.filter(x => x.label !== "retainers" && x.label !== "program").reduce((a, x) => a + x.v, 0), "up"]);
-    const rp = (g("retainer income") + g("program price") * g("program sales")) * n, ra = ms.reduce((a, x) => a + x.v, 0);
-    lines.push(["total", "total revenue", rp, ra, "up"]);
-    lines.push(["head", "costs"]);
-    const salary = (fcInputs(FC.personal) || {}).salary;
-    const fees = ["payment fees", "bank fees", "transfer fees"], named = ["team", "ads & marketing", "software", "director pay", ...fees];
-    const costCats = [...new Set(rows.filter(r => isCost(r)).map(r => r.category))];
-    const cl = [["team", g("team") * n, sumCat(["team"]), "team"], ["ads", g("ad spend") * n, sumCat(["ads & marketing"]), "ad spend"], ["software", g("software") * n, sumCat(["software"]), "software"],
-      ["director pay", (salary ? salary.v : 0) * n, sumCat(["director pay"])], ["payment fees", rp * g("payment fees"), sumCat(fees)], ["other costs", g("other costs") * n, sumCat(costCats.filter(c => !named.includes(c))), "other costs"]];
-    cl.forEach(([l, pl, ac, key]) => { lines.push(["line", l, pl, ac, "down", key]); if (l === "payment fees") lines.push(["note", "payment fees, share of revenue", g("payment fees"), null, "", "payment fees", "pct"]); });
-    const cp = cl.reduce((a, x) => a + x[1], 0), ca = cl.reduce((a, x) => a + x[2], 0);
-    lines.push(["total", "total costs", cp, ca, "down"]);
-    const pbtP = rp - cp, pbtA = ra - ca, rate = g("corporation tax"), taxP = Math.max(0, pbtP) * rate, taxA = Math.max(0, pbtA) * rate;
-    lines.push(["total", "profit before tax", pbtP, pbtA, "up"]);
-    lines.push(["line", "corporation tax", taxP, taxA, "down"]);
-    lines.push(["note", "corporation tax rate", rate, null, "", "corporation tax", "pct"]);
-    lines.push(["total", "profit after tax", pbtP - taxP, pbtA - taxA, "up"]);
-  }
-  // each section's total sits on its bold heading; the results get a section of their own
-  { const out = []; let lastHead = -1;
-    lines.forEach(l => {
-      if (l[0] === "total" && /^total /.test(l[1])) { const h = out[lastHead]; out[lastHead] = ["head", h[1], l[2], l[3], l[4]]; return; }
-      if (l[0] === "total" && (l[1] === "profit before tax" || l[1] === "balance")) { out.push(["head", personal ? "left over" : "profit"]); lastHead = out.length - 1; }
-      if (l[0] === "total") l = ["line", l[1], l[2], l[3], l[4]];
-      if (l[0] === "head") lastHead = out.length;
-      out.push(l);
-    });
-    lines.length = 0; lines.push(...out); }
-  const tb = el("table", "plan"), th = el("tr"), w = personal ? ["", "budget", "actual", "left"] : ["", "plan", "actual", "difference"];
-  w.forEach((x, k) => th.append(el("th", k ? "num" : null, x))); tb.append(el("thead")); tb.firstChild.append(th);
-  const body = el("tbody");
-  const fmtIn = (x, kind) => kind === "pct" ? (Math.round(x * 1000) / 10) + "%" : kind === "count" ? String(Math.round(x * 100) / 100) : money(x);
-  lines.forEach(([kind, label, plan, act, good, key, ikind]) => {
-    const tr = el("tr", kind);
-    if (kind === "head" && plan == null) { const td = el("td", null, label); td.colSpan = 4; tr.append(td); return body.append(tr); }
-    if (kind === "head") tr.className = "head line";
-    // each value sits in a span over a dotted line, so the eye can run from the label across to its figures
-    const sp = (cls, txt) => { const td = el("td", cls); td.append(el("span", null, txt)); return td; };
-    tr.append(sp(null, label));
-    const pc = sp("num", kind === "note" ? fmtIn(plan, ikind) : money(plan));
-    const cell = key && inp[key];
-    if (cell) {
-      pc.classList.add("editable");
-      pc.onclick = () => {
-        if (pc.querySelector("input")) return;
-        const input = el("input", "inline"); input.value = ikind === "pct" ? String(Math.round(cell.v * 1000) / 10) : String(cell.v); pc.replaceChildren(input); input.focus(); input.select();
-        let done = false; const finish = ok => { if (done) return; done = true; const v = parseFloat(input.value.replace(/[^0-9.\-]/g, "")); if (ok && isFinite(v)) saveInput(t, cell, ikind === "pct" ? v / 100 : v, conf.col); else renderForecast(); };
-        input.onkeydown = e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); }; input.onblur = () => finish(true);
-      };
+  status("saving");
+  try {
+    if (!t) {
+      const res = await api(SHEETS + book.id + ":batchUpdate", { method: "POST", body: JSON.stringify({ requests: [{ addSheet: { properties: { title: "budget" } } }] }) });
+      t = { name: "budget", sheetId: res.replies[0].addSheet.properties.sheetId, display: [], raw: [], fmt: [] }; book.tabs.push(t);
     }
-    tr.append(pc);
-    if (act == null) { tr.append(sp("num", ""), sp("num", "")); return body.append(tr); }
-    tr.append(sp("num", money(act)));
-    const diff = good === "down" ? plan - act : act - plan;
-    tr.append(sp("num " + (Math.abs(diff) < 0.5 ? "" : diff < 0 ? "r" : "g"), Math.abs(diff) < 0.5 ? "–" : (diff < 0 ? "−" : "+") + money(Math.abs(diff)).replace(/^−/, "")));
-    body.append(tr);
-  });
-  tb.append(body);
-  $("#fcTable").replaceChildren(tb);
-  renderPlanChart(lines, personal);
+    const range = quote(t.name) + "!B1:E" + (3 + rows.length);
+    await api(SHEETS + book.id + "/values/" + encodeURIComponent(range) + "?valueInputOption=USER_ENTERED", { method: "PUT", body: JSON.stringify({ range, majorDimension: "ROWS", values: [["budget"], [""], head[2]].concat(rows) }) });
+    await refreshTab(t); status("saved");
+  } catch (e) { status(e.expired ? "signed out. sign in again to save." : e.message); }
 }
-// plan (blue) next to actual (green for money in, red for money out) for each section, for the period chosen
-function renderPlanChart(lines, personal) {
-  const pick = personal ? [["income", "up"], ["spending", "down"], ["balance", "up", "left over"]] : [["revenue", "up"], ["costs", "down"], ["profit after tax", "up", "profit"]];
-  const groups = pick.map(([key, good, label]) => { const l = lines.find(x => x[1] === key && x[2] != null); return l ? { label: label || key, plan: l[2], act: l[3], good } : null; }).filter(Boolean);
-  const host = $("#fcChart"), box = el("div"); host.replaceChildren(box);
-  if (!groups.length) return;
-  const vals = groups.flatMap(g => [g.plan, g.act]), top = niceMax(Math.max(1, ...vals) * 1.1), bot = Math.min(0, ...vals) < 0 ? -niceMax(-Math.min(0, ...vals)) : 0;
-  svgBox(box, 300, W => {
-    const L = 44, T = 10, B = 250, y = v => B - (v - bot) / (top - bot) * (B - T), slot = (W - L) / groups.length; let s = "";
-    const ticks = bot < 0 ? [bot, 0, top] : [0, top * 0.25, top * 0.5, top * 0.75, top];
-    const hov = [];
-    s += '<defs><pattern id="planHatch" patternUnits="userSpaceOnUse" width="6" height="6"><path d="M0 0L6 6M6 0L0 6" style="stroke:' + GREEN + '" stroke-width="1.1"/></pattern><pattern id="planHatchR" patternUnits="userSpaceOnUse" width="6" height="6"><path d="M0 0L6 6M6 0L0 6" style="stroke:' + RED + '" stroke-width="1.1"/></pattern></defs>';
-    ticks.forEach(v => { s += '<line x1="' + L + '" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" style="stroke:' + (v === 0 ? "currentColor" : "var(--grid)") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (v ? short(v) : "0") + "</text>"; });
-    groups.forEach((g, k) => {
-      const bw = slot * 0.3, x = L + k * slot + slot * 0.18, ok = g.good === "down" ? g.act <= g.plan : g.act >= g.plan;
-      const bar = (bx, v, fill) => { const y0 = y(Math.max(0, v)), h = Math.abs(y(v) - y(0)); return '<rect x="' + bx + '" y="' + y0 + '" width="' + bw + '" height="' + h + '" style="fill:' + fill + '"/>'; };
-      const actFill = g.label === "costs" || g.label === "spending" ? RED : g.act < 0 ? RED : GREEN;
-      const spend = g.label === "costs" || g.label === "spending", planC = spend || g.plan < 0 ? RED : GREEN;
-      // the plan is the hatched twin of its actual bar: red for costs, green for money in and money left
-      s += bar(x, g.plan, planC === RED ? "url(#planHatchR)" : "url(#planHatch)") + bar(x + bw + 3, g.act, actFill);
-      s += '<text x="' + (x + bw + 1.5) + '" y="' + (B + 22) + '" ' + F + ' text-anchor="middle">' + g.label + "</text>";
-      s += '<text x="' + (x + bw + 1.5) + '" y="' + (B + 42) + '" font-size="14" text-anchor="middle" font-family="PT Sans, Arial, sans-serif" style="fill:' + (ok ? GTEXT : RTEXT) + '">' + (g.act - g.plan < 0 ? "−" : "+") + short(Math.abs(g.act - g.plan)) + "</text>";
-      // on hover: a dot on each bar, and both figures stacked just above the pair, where nothing else is drawn
-      const yTop = Math.min(y(Math.max(0, g.plan)), y(Math.max(0, g.act))), lab = (ly, c, hollow, t) => '<circle cx="' + (x + 5) + '" cy="' + ly + '" r="4" style="fill:' + (hollow ? "var(--card)" : c) + ';stroke:' + c + '" stroke-width="1.5"/><text x="' + (x + 15) + '" y="' + (ly + 4.5) + '" font-size="13" font-family="PT Sans, Arial, sans-serif" fill="currentColor">' + esc(t) + "</text>";
-      hov.push('<g class="col"><rect class="spot" x="' + (L + k * slot) + '" y="0" width="' + slot + '" height="' + (B + 4) + '" fill="transparent"/><g class="hov" pointer-events="none">'
-        + '<circle cx="' + (x + bw / 2) + '" cy="' + y(g.plan) + '" r="4.5" style="fill:var(--card);stroke:' + planC + '" stroke-width="2"/>'
-        + '<circle cx="' + (x + bw * 1.5 + 3) + '" cy="' + y(g.act) + '" r="4.5" style="fill:' + actFill + ';stroke:' + actFill + '" stroke-width="2"/>'
-        + lab(yTop - 34, planC, true, (personal ? "budget  " : "plan  ") + money(g.plan)) + lab(yTop - 15, actFill, false, "actual  " + money(g.act)) + "</g></g>");
+function renderBudget(host) {
+  const mode = dash.mode, personal = mode === "personal", lines = budgetLines(mode).map(r => ({ group: r.group, line: r.line, amount: r.amount }));
+  const commit = () => { saveBudget(lines).then(() => renderMore()); renderMore(); };
+  const tb = el("table", "plan budget"), head = el("tr");
+  const win = lastTwelve(mode), mo = d => MONTHS[+d.slice(5, 7) - 1] + " " + d.slice(0, 4);
+  ["", "per month", "normal month", "difference"].forEach((h, k) => { const th = el("th", k ? "num" : null, h); if (k === 2) th.title = "the middle month of " + mo(win.from) + " – " + mo(win.to); head.append(th); });
+  tb.append(el("thead")); tb.tHead.append(head);
+  const body = el("tbody"), sp = (cls, txt) => { const td = el("td", cls); td.append(el("span", null, txt)); return td; };
+  const diffCell = (b, t, kind) => { if (t == null) return sp("num", ""); const d = kind === "in" ? t - b : b - t; return sp("num " + (Math.abs(d) < 0.5 ? "" : d < 0 ? "r" : "g"), Math.abs(d) < 0.5 ? "–" : (d < 0 ? "−" : "+") + money(Math.abs(d)).replace(/^−/, "")); };
+  // click a cell to type in it, like a sheet; enter or clicking away saves, escape cancels
+  const editable = (td, value, set, isNum) => {
+    td.classList.add("editable");
+    td.onclick = () => {
+      if (td.querySelector("input")) return;
+      const input = el("input", "inline"); input.value = value; td.replaceChildren(input); input.focus(); input.select();
+      let done = false; const finish = ok => { if (done) return; done = true; const v = isNum ? parseFloat(input.value.replace(/[^0-9.\-]/g, "")) : lc(input.value).trim(); if (ok && (isNum ? isFinite(v) : v)) { set(v); commit(); } else renderMore(); };
+      input.onkeydown = e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); }; input.onblur = () => finish(true);
+    };
+  };
+  const sums = {};
+  BUD_GROUPS[mode].forEach(([g, kind]) => {
+    const mine = lines.filter(r => r.group === g), ts = mine.map(r => typical(kind, r.line));
+    const bt = mine.reduce((a, r) => a + r.amount, 0), tt = ts.reduce((a, t) => a + (t || 0), 0); sums[g] = { b: bt, t: tt, kind };
+    // the group's difference only counts lines that have a normal month to compare with
+    const bm = mine.reduce((a, r, k) => a + (ts[k] == null ? 0 : r.amount), 0), has = ts.some(t => t != null);
+    const hr = el("tr", "head line"); hr.append(sp(null, g), sp("num", money(bt)), sp("num", has ? money(tt) : ""), diffCell(bm, has ? tt : null, kind)); body.append(hr);
+    mine.forEach((r, k) => {
+      const tr = el("tr", "line"), name = sp(null, r.line), amt = sp("num", money(r.amount));
+      editable(name, r.line, v => { r.line = v; }, false); editable(amt, String(r.amount), v => { r.amount = v; }, true);
+      const x = el("button", "del", "×"); x.type = "button"; x.title = "remove " + r.line; x.onclick = e => { e.stopPropagation(); lines.splice(lines.indexOf(r), 1); commit(); };
+      name.append(x);
+      tr.append(name, amt, sp("num", ts[k] == null ? "" : money(ts[k])), diffCell(r.amount, ts[k], kind)); body.append(tr);
     });
-    return s + hov.join("");
+    // a new line: type its name; it compares itself with the category or stream of that name, if there is one
+    const add = el("tr", "add"), td = el("td"); td.colSpan = 4; const b = el("button", "add-line", "add line"); b.type = "button";
+    b.onclick = () => { const input = el("input", "inline"); input.placeholder = "name"; td.replaceChildren(input); input.focus();
+      let done = false; const finish = ok => { if (done) return; done = true; const v = lc(input.value).trim(); if (ok && v) { const t = typical(kind, v); lines.push({ group: g, line: v, amount: t ? Math.round(t / 10) * 10 : 0 }); commit(); } else renderMore(); };
+      input.onkeydown = e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); }; input.onblur = () => finish(true); };
+    td.append(b); add.append(td); body.append(add);
   });
-}
-async function saveInput(tab, cell, value, col = 1) {
-  if (!cell) return;
-  await writeCell(tab, cell.i, col + 1, value);
-  if (TEST) { const r = tab.display[cell.i]; r[col + 1] = typeof value === "number" && value < 1 && value > 0 ? (value * 100) + "%" : String(value); }
-  buildModel(); renderForecast();
+  // the bottom line
+  const res = (label, b, t, good) => { const tr = el("tr", "head line"); tr.append(sp(null, label), sp("num " + (b < 0 ? "r" : ""), money(b)), sp("num", t == null ? "" : money(t)), t == null ? sp("num", "") : diffCell(b, t, good)); body.append(tr); };
+  if (personal) {
+    const s = sums, needB = s.spending.b + s.saving.b, needT = s.spending.t + s.saving.t;
+    res("left over", s.income.b - needB, s.income.t - needT, "in");
+    // what the company needs to pay you: everything you spend and put aside, less income from anywhere else
+    const other = lines.filter(r => r.group === "income" && !/salary|dividend|director/.test(r.line)).reduce((a, r) => a + r.amount, 0);
+    res("pay yourself", needB - other, null);
+  } else {
+    res("profit", sums.revenue.b - sums.costs.b, sums.revenue.t - sums.costs.t, "in");
+  }
+  tb.append(body);
+  host.replaceChildren(tb);
 }
 
-/* ---------- investments (personal): what you've put in, what it's worth now, and the monthly goal ---------- */
-function investedBy(to) { const iv = data.investments; return iv ? iv.holdings.filter(h => h.date <= to).reduce((a, h) => a + h.paid, 0) : 0; }
-function investValue() { const iv = data.investments; return iv ? iv.holdings.reduce((a, h) => a + h.value, 0) : 0; }
-function renderInvestments() {
-  const sec = $("#investSec"), iv = data.investments, show = dash.mode === "personal" && !!iv;
-  sec.hidden = !show; if (!show) return;
-  const list = $("#investList"), detail = $("#investDetail"), today = iso(new Date());
-  const byT = new Map(); iv.holdings.forEach(h => { const x = byT.get(h.ticker) || { paid: 0, value: 0 }; x.paid += h.paid; x.value += h.value; byT.set(h.ticker, x); });
-  const paid = [...byT.values()].reduce((a, x) => a + x.paid, 0), value = investValue();
-  const growth = (v, p) => { const g = v - p; return [el("span", g < 0 ? "r" : "g", money(v)), document.createTextNode(p > 0 ? " (" + (g < 0 ? "" : "+") + pct(g / p) + ")" : "")]; };
-  list.replaceChildren(el("i", "mt", "holding"));
-  if (!byT.size) list.append(el("p", "empty", "nothing invested yet"));
-  else {
-    list.append(lead("all holdings", growth(value, paid), { sel: true }));
-    [...byT.entries()].sort((a, b) => b[1].value - a[1].value).forEach(([t, x]) => list.append(lead(t.replace(/^[A-Z]+:/, "").toLowerCase(), growth(x.value, x.paid))));
-    list.append(lead("put in", money(paid), { italic: true, cls: "total" }));
-  }
-  // the goal: so much a month from the start month, for so many years
-  const start = iv.starts || today, months = start > today ? 0 : Math.max(1, Math.floor((new Date(today + "T00:00:00") - new Date(start + "T00:00:00")) / (864e5 * 30.44)) + 1);
-  const pace = months * iv.monthly, target = iv.monthly * 12 * iv.years, diff = paid - pace;
-  const s0 = new Date(start + "T00:00:00"), end = addMonths(s0, iv.years * 12 - 1);
-  const goal = el("div");
-  goal.append(el("i", "mt", "goal"), lead("each month", money(iv.monthly)), lead("by " + MONTHS[end.getMonth()] + " " + end.getFullYear(), money(target)),
-    lead("so far", months ? [el("span", diff < -0.5 ? "r" : "g", money(paid)), document.createTextNode(" of " + money(pace) + (diff < -0.5 ? " (" + money(-diff) + " behind)" : diff > 0.5 ? " (" + money(diff) + " ahead)" : ""))] : "starts " + longDate(start)));
-  const bar = el("div", "chart");
-  goal.append(bar);
-  setTimeout(() => svgBox(bar, 20, W2 => { const w = Math.min(1, paid / (target || 1)) * W2; return '<rect x="0" y="4" width="' + W2 + '" height="12" style="fill:var(--soft)"/><rect x="0" y="4" width="' + w + '" height="12" fill="' + GREEN + '"/>'; }), 0);
-  const watch = el("div");
-  watch.append(el("i", "mt group", "highlighted"));
-  iv.watch.forEach(w => watch.append(lead(w.name, w.priv ? [el("i", null, "private")] : [el("span", null, money(w.price).replace(/(\.\d+)?$/, "") ), document.createTextNode(" "), el("span", w.today < 0 ? "r" : "g", w.today == null ? "" : (w.today < 0 ? "" : "+") + (Math.round(w.today * 1000) / 10) + "% today")])));
-  detail.replaceChildren(goal, watch);
+/* ---------- filings, in full: what's coming up and what's gone in ---------- */
+function renderFilingList(host) {
+  const today = iso(new Date()), when = f => f.target || f.deadline || "";
+  const up = filingDates().filter(f => f.status !== "done").sort((a, b) => (when(a) || "9") < (when(b) || "9") ? -1 : 1);
+  const done = pastFilings().sort((a, b) => a.date < b.date ? 1 : -1);
+  const who = w => w && w !== "personal" ? " (" + w + ")" : "";
+  const col = (title, rows) => { const d = el("div", "pick"); d.append(el("i", "mt", title), ...rows); if (!rows.length) d.append(el("p", "empty", "nothing")); return d; };
+  const upRows = up.map(f => { const d = when(f), late = d && d < today; const r = lead(f.name + who(f.who), d ? (late ? "now" : longDate(d)) : f.status, { cls: "filing" + (late ? " late" : "") }); r.dataset.row = "u" + f.row; r.title = [submitText(f, today), f.deadline ? "due " + longDate(f.deadline) : "", f.notes].filter(Boolean).join("\n"); return r; });
+  const doneRows = done.map(f => { const r = lead(f.name + (f.period ? " " + f.period : "") + who(f.who), f.text, { cls: "filing" }); r.dataset.row = "d" + f.row; return r; });
+  const g = el("div", "split"); g.append(col("coming up", upRows), col("filed", doneRows)); host.replaceChildren(g);
+}
+// a filing clicked anywhere opens the filings tab at that row
+function openFiling(row) {
+  bud.tab = "filings"; if (view !== "dashboard") showView("dashboard"); else renderMore();
+  const r = $('#moreBody [data-row="u' + row + '"], #moreBody [data-row="d' + row + '"]'); if (!r) return;
+  r.scrollIntoView({ block: "center" }); r.classList.add("flash"); setTimeout(() => r.classList.remove("flash"), 2500);
+}
+function renderMore() {
+  const pick = $("#morePick"); pick.innerHTML = "";
+  [["budget", "budget"], ["filings", "filings"]].forEach(([k, l]) => { const b = el("button", null, l); b.type = "button"; b.setAttribute("aria-pressed", bud.tab === k); b.onclick = () => { bud.tab = k; renderMore(); }; pick.append(b); });
+  $("#moreTitle").textContent = bud.tab;
+  if (bud.tab === "filings") renderFilingList($("#moreBody")); else renderBudget($("#moreBody"));
 }
 
 /* ---------- needs attention ---------- */
@@ -1347,19 +1262,12 @@ function fitSheet() {
 }
 addEventListener("resize", () => fitSheet());
 function showView(name) {
+  if (!["dashboard", "transactions"].includes(name) || (name === "transactions" && !tabByName("transactions"))) name = "dashboard";
   view = name;
   [...$("#tabs").children].forEach(b => b.setAttribute("aria-selected", b.dataset.view === name));
-  const isFc = name.toLowerCase() === "forecast" && !fc.sheet && fcInputs();
-  if (name.toLowerCase() === "forecast" && !fc.sheet && !isFc) fc.sheet = true;
   $("#viewDashboard").hidden = name !== "dashboard";
-  $("#viewForecast").hidden = !isFc;
-  $("#viewSheet").hidden = name === "dashboard" || !!isFc;
-  if (name === "dashboard") renderDashboard();
-  else if (isFc) renderForecast();
-  else {
-    renderSheet(tabByName(name.toLowerCase()) || book.tabs.find(t => t.name === name));
-    if (name.toLowerCase() === "forecast") { const b = el("button", "box", "back to the forecast"); b.type = "button"; b.onclick = () => { fc.sheet = false; showView("forecast"); }; $("#sheetHead").append(b); }
-  }
+  $("#viewSheet").hidden = name === "dashboard";
+  if (name === "dashboard") renderDashboard(); else renderSheet(tabByName(name));
   // filings, needs attention and tasks show beside every page
   if (name !== "dashboard") { renderFilings(); renderTasks(); renderAttention(); fitTasks(); }
   fitSheet();
@@ -1650,9 +1558,9 @@ function start() {
   $("#gate").hidden = true; $("#app").hidden = false; $("#top").hidden = false;
   document.title = book.title; $("#brandName").textContent = book.title;
   const tabs = $("#tabs"); tabs.innerHTML = "";
-  ["dashboard"].concat(book.tabs.map(t => t.name).filter(n => !HIDE_TABS.includes(n.toLowerCase()))).forEach(n => {
+  ["dashboard", "transactions"].filter(n => n === "dashboard" || tabByName(n)).forEach(n => {
     const b = el("button", null, n); b.type = "button"; b.setAttribute("role", "tab"); b.dataset.view = n;
-    b.onclick = () => { if (n.toLowerCase() === "transactions") Object.assign(txFilter, TX_CLEAR, modeFilter()); if (n.toLowerCase() === "forecast") fc.sheet = false; showView(n); };
+    b.onclick = () => { if (n === "transactions") Object.assign(txFilter, TX_CLEAR, modeFilter()); showView(n); };
     tabs.append(b);
   });
   $("#openInSheets").href = "https://docs.google.com/spreadsheets/d/" + encodeURIComponent(book.id) + "/edit";
