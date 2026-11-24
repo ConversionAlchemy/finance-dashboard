@@ -815,7 +815,7 @@ function donut(host, slices, centre) {
   svgBox(host, H, W => {
     const cx = W / 2, cy = H / 2, r = 118, ri = 74;
     const pt = (a, rad) => [cx + rad * Math.sin(a), cy - rad * Math.cos(a)];
-    let a0 = 0, s = "", tips = "";
+    let a0 = 0, s = "";
     slices.forEach((x, i) => {
       const a1 = a0 + x.v / sum * Math.PI * 2, big = a1 - a0 > Math.PI ? 1 : 0, gap = slices.length > 1 ? 0.004 : 0;
       const [x0, y0] = pt(a0 + gap, r), [x1, y1] = pt(a1 - gap, r), [x2, y2] = pt(a1 - gap, ri), [x3, y3] = pt(a0 + gap, ri);
@@ -823,7 +823,10 @@ function donut(host, slices, centre) {
         ? "M" + (cx - r) + "," + cy + "a" + r + "," + r + " 0 1,0 " + 2 * r + ",0a" + r + "," + r + " 0 1,0 " + -2 * r + ",0M" + (cx - ri) + "," + cy + "a" + ri + "," + ri + " 0 1,1 " + 2 * ri + ",0a" + ri + "," + ri + " 0 1,1 " + -2 * ri + ",0Z"
         : "M" + x0 + "," + y0 + "A" + r + "," + r + " 0 " + big + ",1 " + x1 + "," + y1 + "L" + x2 + "," + y2 + "A" + ri + "," + ri + " 0 " + big + ",0 " + x3 + "," + y3 + "Z";
       const [mx, my] = pt((a0 + a1) / 2, (r + ri) / 2);
-      s += '<g class="sub slice' + (x.onclick ? " hit" : "") + '" data-i="' + i + '"><path d="' + d + '" fill-rule="evenodd" style="fill:' + x.c + '"/>'
+      // its share written on the slice, when the slice is wide enough to hold it
+      const share = x.v / sum, dark = [GREEN, RED, BAR_REDS[1]].includes(x.c);
+      const label = share >= 0.035 ? '<text x="' + mx.toFixed(1) + '" y="' + (my + 5).toFixed(1) + '" text-anchor="middle" font-size="14" font-family="PT Sans, Arial, sans-serif" pointer-events="none" style="fill:' + (dark ? "#fff" : "#26241f") + '">' + pct(share) + "</text>" : "";
+      s += '<g class="sub slice' + (x.onclick ? " hit" : "") + '" data-i="' + i + '"><path d="' + d + '" fill-rule="evenodd" style="fill:' + x.c + '"/>' + label
         + '<g class="hov" pointer-events="none">' + hoverBlock(mx, my - 12, [{ t: x.label, c: x.c }, { t: x.t, sub: true }], W, 0, H) + "</g></g>";
       a0 = a1;
     });
