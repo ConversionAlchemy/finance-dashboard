@@ -92,7 +92,7 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 12px; al
 .views { min-width: 0; }
 main[hidden] { display: none; }
 .filters { position: sticky; top: var(--top-h); z-index: 15; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 18px 20px 14px; background: var(--card); border-bottom: 1px solid var(--hair); }
-.filters > b { width: 130px; margin-right: 16px; }
+.filters > b { width: 166px; margin-right: 16px; }
 /* one control size everywhere: dashboard, forecast, transactions and the sheet tabs */
 .filters .box, .filters .seg, .sheet-head .box, .sheet-head .seg { height: 40px; }
 .filters .box, .sheet-head .box { padding: 0 16px; }
@@ -117,7 +117,7 @@ main[hidden] { display: none; }
 .seg button:hover { color: var(--grey); }
 .filters #pdfButton { margin-left: auto; }
 
-.sec { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 24px; padding: 18px 20px; margin-bottom: 12px; background: var(--card); }
+.sec { display: grid; grid-template-columns: 166px minmax(0, 1fr); gap: 24px; padding: 18px 20px; margin-bottom: 12px; background: var(--card); }
 .figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); row-gap: 14px; }
 #summary { display: block; }
 .fig { display: grid; align-content: start; gap: 3px; padding: 0 14px; border-left: 1px solid var(--hair); }
@@ -383,7 +383,7 @@ html.fit .sheet-scroll { max-height: none !important; }
 .sheet-head .chip { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* the name fills the label column, so business/personal lines up with the first control and the text below it */
 .brand { gap: 0; }
-.brand-button { box-sizing: border-box; width: 174px; padding-right: 12px; margin-right: 0; display: flex; align-items: center; gap: 4px; overflow: hidden; }
+.brand-button { box-sizing: border-box; width: 210px; padding-right: 12px; margin-right: 0; display: flex; align-items: center; gap: 4px; overflow: hidden; }
 .brand-button b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* controls sit on the right, next to export, as on the transactions page */
 .dash-main .filters > b { flex: 1; margin-right: 0; }

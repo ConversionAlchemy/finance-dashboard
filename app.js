@@ -708,28 +708,19 @@ function renderFlow(rg) {
     const s = f.key ? streams.find(x => x.label === f.key) : null;
     const v = s ? s.v : allInc, keepV = s ? s.margin : profit;
     let steps = s ? s.steps : groupBy(outRows, "category").filter(c => c.v < -0.5).sort((a, b) => a.v - b.v);
-    const long = !s && !personal, nTop = long ? 4 : 5;
+    const long = !s && !personal, nTop = 5;
     if (!s) { const top = steps.slice(0, nTop), r = steps.slice(nTop).reduce((a, c) => a + c.v, 0); steps = r < -0.5 ? top.concat([{ label: "everything else", v: r }]) : top; }
     title = s ? s.label : w.allRev;
     items = [{ label: s ? (personal ? w.keep : "margin") : w.keep, v: Math.max(0, keepV), keep: true, value: [el("span", keepV < 0 ? "r" : "g", money(keepV)), document.createTextNode(pctOf(keepV, v))] }]
       .concat(steps.map(st => ({ label: catName(st.label), v: -st.v, value: [el("span", "r", money(st.v)), document.createTextNode(pctOf(-st.v, v))], onclick: catClick(st.label) })));
     items.total = { label: w.rev, v }; items.keepV = keepV;
     if (long) {
-      // past profit: the tax on it, what's left after tax, then where that money went, ending at how much cash went up or down
+      // past profit: the tax on it, and what's left after tax
       items[0].label = "profit before tax";
-      const fg = figures(rg), afterTax = keepV - fg.tax;
-      const paidOut = -total(sel(rg, r => r.group === "director" && r.category !== "director pay"));
-      const notYet = fg.tax - fg.taxPaid;
-      const day = new Date(rg.from + "T00:00:00"); day.setDate(day.getDate() - 1);
-      const change = balance(rg.to) - (rg.kind === "all" ? 0 : balance(iso(day)));
-      const other = change - (afterTax - paidOut + notYet);
+      const fg = figures(rg);
       items.after = [
         { label: "tax (estimate)", v: -fg.tax },
-        { label: "after tax", sub: true },
-        { label: "paid to you", v: -paidOut, onclick: () => openTx({ group: "director", notIn: ["director pay"] }, "paid to you") },
-        { label: notYet >= 0 ? "tax not paid yet" : "earlier tax paid", v: notYet },
-        { label: "transfers and timing", v: other },
-        { label: change >= 0 ? "added to cash" : "taken from cash", sub: true }
+        { label: "after tax", sub: true }
       ].filter(x => x.sub || Math.abs(x.v) >= 0.5);
     }
   } else {
