@@ -37,7 +37,23 @@ function exportBtn(fn, title = "export") { const b = el("button", "box icon mini
 function downloadCSV(name, rows) {
   const q = v => { const x = v == null ? "" : String(v); return /[",\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; };
   const a = el("a"); a.href = URL.createObjectURL(new Blob([rows.map(r => r.map(q).join(",")).join("\n")], { type: "text/csv" }));
-  a.download = name + " " + iso(new Date()) + ".csv"; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  a.download = name + "_" + iso(new Date()) + ".csv"; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+}
+// a file name that says what's in it: what, which slice of it, which company, which period
+function exportName(...parts) { return parts.filter(Boolean).map(x => String(x).toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9%.]+/g, "-").replace(/^-+|-+$/g, "")).filter(Boolean).join("_"); }
+function periodName() {
+  if (dash.month) { const m = new Date(dash.month + "-01T00:00:00"); return MONTHS[m.getMonth()] + " " + m.getFullYear(); }
+  if (dash.period === "fy") return fyLabel(new Date(dash.fy + "T00:00:00"), scopeYe());
+  return (PERIODS.find(([k]) => k === dash.period) || [, ""])[1];
+}
+function scopeName() { return dash.scope === "personal" ? "personal" : (COMPANIES.find(([k]) => k === dash.co) || [, ""])[1]; }
+// transactions as csv rows, every column, the same as the transactions tab exports
+function txCSV(list, bal) {
+  const tab = tabByName("transactions"), c = data.cols;
+  return [["date", "account", "entity", "merchant", "reference", "amount", "currency", "usd", "balance", "category", "receipt"]].concat(list.map(r => {
+    const d = (tab && tab.display[r.i]) || [], link = tab ? receiptLink((tab.raw[r.i] || [])[c.receipt], d[c.receipt]) : null;
+    return [r.date, r.account, r.entity, d[c.merchant] || r.merchant, d[c.reference] || "", r.amount.toFixed(2), r.cur, r.v.toFixed(2), bal && bal.has(r.i) ? bal.get(r.i).toFixed(2) : "", r.category, link ? link.url : d[c.receipt] || r.receipt || ""];
+  }));
 }
 // every lead line in a box: its label, its figures, and whether it's done (filings)
 function leadsCSV(root) {
@@ -806,7 +822,15 @@ function renderFlow(rg) {
     slices = items.map(i => ({ label: i.label, v: i.v, c: i.c, onclick: i.onclick, t: money(-i.v) + " (" + pct(i.v / (sum || 1)) + ")" }));
     centre = { v: -sum, label: items.total.label };
   }
-  detail.replaceChildren(captionWithExport(title, () => downloadCSV(w.box, leadsCSV(list).concat([[]], [[title]], slices.map(x => [x.label, Math.round(x.keep ? x.v : -x.v)])))));
+  // the export is what's on screen: the list, the breakdown in the chart, and the transactions behind whatever is selected
+  const flowExport = () => {
+    const tx = f.side === "rev"
+      ? (f.key ? sel(rg, r => (isIncome(r) && streamOf(r) === f.key) || (isCost(r) && r.stream === f.key)) : sel(rg, r => isIncome(r) || isCost(r) || r.category === "director pay"))
+      : sel(rg, r => isCost(r) && (!f.key || r.category === f.key));
+    const rows = leadsCSV(list).concat([[]], [[title]], slices.map(x => [x.label, Math.round(x.keep ? x.v : -x.v)]), [[]], [["transactions (" + tx.length + ")"]], txCSV(tx.slice().reverse()));
+    downloadCSV(exportName(w.box, f.key ? (f.side === "cost" ? catName(f.key) : f.key) : f.side === "cost" ? w.cost : "", scopeName(), periodName()), rows);
+  };
+  detail.replaceChildren(captionWithExport(title, flowExport));
   const box = el("div", "chart donut"); detail.append(box);
   if (!slices.some(x => x.v > 0.5)) { detail.append(el("p", "empty", "nothing in this period")); return; }
   donut(box, slices.filter(x => x.v > 0.5), centre);
@@ -861,7 +885,12 @@ function renderCash(rg) {
     pts.push({ label: MONTHS[m.getMonth()], y: m.getFullYear(), v });
   }
   const box = el("div", "chart");
-  detail.replaceChildren(captionWithExport(dash.acct || "accounts", () => downloadCSV("cash", leadsCSV(list))), box);
+  // the list, month-end balances for what's selected, and (for one account) its transactions in the period
+  detail.replaceChildren(captionWithExport(dash.acct || "accounts", () => {
+    const rows = leadsCSV(list).concat([[]], [["month end", dash.acct || "all accounts"]], pts.filter(p => p.v != null).map(p => [p.label + " " + p.y, p.v.toFixed(2)]));
+    if (dash.acct) { const tx = sel(rg, r => r.account === dash.acct); rows.push([], ["transactions (" + tx.length + ")"], ...txCSV(tx.slice().reverse(), runningBalance({ account: dash.acct }))); }
+    downloadCSV(exportName("cash", dash.acct, scopeName(), periodName()), rows);
+  }), box);
   const vals = pts.map(p => p.v).filter(v => v != null);
   if (!vals.length) return;
   // a scale that fits the values instead of starting at zero, so real movement shows
@@ -1470,14 +1499,19 @@ function attentionItems() {
   const wrong = sel(rg, r => WRONG_ACCOUNT.includes(r.category)).length;
   const noReceipt = sel(rg, r => receiptExpected(r) && !r.receipt, cos).length;
   return [
-    { n: check, text: (check === 1 ? "transaction" : "transactions") + " to categorise", urgent: true, go: () => openTx({ category: "check", from: "", to: "" }, "to categorise") },
-    { n: wrong, text: (wrong === 1 ? "cost" : "costs") + " paid from the wrong account", go: () => openTx({ only: "wrong" }, "paid from the wrong account") },
-    { n: noReceipt, text: (noReceipt === 1 ? "cost" : "costs") + " with no receipt", go: () => openTx({ only: "receipt", entities: cos.length > 1 ? cos : null, entity: cos.length === 1 ? cos[0] : "" }, "costs with no receipt") }
-  ].filter(i => i.n > 0 || i.urgent);
+    { n: check, text: (check === 1 ? "transaction" : "transactions") + " to categorise", urgent: true, f: { category: "check", from: "", to: "" }, title: "to categorise" },
+    { n: wrong, text: (wrong === 1 ? "cost" : "costs") + " paid from the wrong account", f: { only: "wrong" }, title: "paid from the wrong account" },
+    { n: noReceipt, text: (noReceipt === 1 ? "cost" : "costs") + " with no receipt", f: { only: "receipt", entities: cos.length > 1 ? cos : null, entity: cos.length === 1 ? cos[0] : "" }, title: "costs with no receipt" }
+  ].filter(i => i.n > 0 || i.urgent).map(i => Object.assign(i, { go: () => openTx(i.f, i.title) }));
 }
 function renderAttention() {
   const box = $("#attention"), items = attentionItems().filter(i => i.n > 0);
-  const copy = exportBtn(b => copyText(["needs attention"].concat(items.map(i => i.n + " " + i.text)).join("\n"), b));
+  const copy = exportBtn(() => {
+    const tab = tabByName("transactions"), rg = range(), ents = scopeEntities(), rows = [];
+    items.forEach(i => { const f = Object.assign({}, TX_CLEAR, { entity: ents.length === 1 ? ents[0] : "", entities: ents.length > 1 ? ents : null, from: rg.from, to: rg.to }, i.f);
+      if (rows.length) rows.push([]); rows.push([i.n + " " + i.text]); rows.push(...txCSV(txMatches(f, tab))); });
+    downloadCSV(exportName("needs attention", scopeName(), periodName()), rows);
+  });
   const hd = el("div", "hd"); hd.append(el("b", null, "needs attention"), copy);
   box.replaceChildren(hd);
   if (!items.length) box.append(el("p", "empty", "nothing to flag"));
@@ -1625,12 +1659,7 @@ function openTx(f, title) {
   const show = () => txView({ head: $("#txmHead"), grid: $("#txmGrid"), scroller: $("#txmGrid").closest(".modal-body"), host: $("#txmMore"), tab, f: filt, rebuild: show, key: "modal" });
   $("#txModal").hidden = false; show();
   $("#txmOpen").onclick = () => { Object.assign(txFilter, TX_CLEAR, filt); closeTx(); showView("transactions"); };
-  $("#txmCopy").onclick = () => {
-    const list = txMatches(filt, tab);
-    const rows = [["row", "date", "account", "entity", "merchant", "reference", "amount", "currency", "category"].join("\t")].concat(list.map(r => { const d = tab.display[r.i] || []; return [r.i + 1, r.date, r.account, r.entity, d[c.merchant] || "", d[c.reference] || "", d[c.amount] || "", r.cur, r.category].join("\t"); }));
-    const txt = title + "\n" + rows.join("\n");
-    copyText(txt, $("#txmCopy"));
-  };
+  $("#txmCopy").onclick = () => downloadCSV(exportName(title, scopeName(), filt.from ? periodName() : "all time"), txCSV(txMatches(filt, tab)));
 }
 function closeTx() { $("#txModal").hidden = true; if (txObs.modal) txObs.modal.disconnect(); buildModel(); if (view === "dashboard") renderDashboard(); }
 // on the sheet tabs the page fits the window exactly: the table scrolls inside its box and the watermark always shows
@@ -1779,11 +1808,9 @@ function txView({ head, grid, scroller, host, tab, f, rebuild, key }) {
   // export: the transactions as filtered, every column, as a csv file
   const exp = el("button", "box icon"); exp.type = "button"; exp.title = "export"; exp.setAttribute("aria-label", "export"); exp.innerHTML = EXPORT_ICON;
   exp.onclick = () => {
-    const list = txMatches(f, tab), bal = runningBalance(f), q = v => { const x = v == null ? "" : String(v); return /[",\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; };
-    const lines = [["date", "account", "entity", "merchant", "reference", "amount", "currency", "usd", "balance", "category", "receipt"].join(",")]
-      .concat(list.map(r => { const d = tab.display[r.i] || [], link = receiptLink((tab.raw[r.i] || [])[c.receipt], d[c.receipt]);
-        return [r.date, r.account, r.entity, d[c.merchant], d[c.reference], r.amount.toFixed(2), r.cur, r.v.toFixed(2), bal.has(r.i) ? bal.get(r.i).toFixed(2) : "", r.category, link ? link.url : d[c.receipt] || ""].map(q).join(","); }));
-    const a = el("a"); a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" })); a.download = "transactions " + iso(new Date()) + ".csv"; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+    // exactly the rows the filters leave, named after the filters
+    const list = txMatches(f, tab);
+    downloadCSV(exportName(key === "modal" ? $("#txmTitle").textContent : "transactions", f.text && '"' + f.text + '"', f.entity, f.account, f.category, f.rec && f.rec + " receipts", f.from && f.from + " to " + f.to), txCSV(list, runningBalance(f)));
   };
   const colWrap = el("span", "colwrap"); colWrap.append(colBtn, menu); head.append(exp, colWrap);
   head.prepend(count); head.classList.add("tx-head");
