@@ -495,3 +495,10 @@ main.solo .side-col { display: none; }
 @media (max-width: 1500px) and (min-width: 1101px) { main { grid-template-columns: minmax(0, 1fr); } .side-col { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; } }
 /* side box headings all one height, with or without an export button beside them */
 .side .hd, .side > .hd { display: flex; align-items: center; justify-content: space-between; min-height: 28px; }
+/* lists with a second figure: the amount and a change or share, each in its own narrow right-aligned column, close together */
+.lead.two > .c1 { flex: none; min-width: 84px; text-align: right; white-space: nowrap; }
+.lead.two > .c2 { flex: none; width: 52px; margin-left: 4px; text-align: right; white-space: nowrap; }
+.lead.colh { margin-bottom: 6px; }
+.lead.colh, .lead.colh * { font-style: italic; }
+.lead.colh > .dots { visibility: hidden; }
+#summary > .mt { display: none; }

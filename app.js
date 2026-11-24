@@ -410,9 +410,14 @@ function lead(label, value, o = {}) {
   if (o.italic) l.append(el("i", null, label)); else l.append(document.createTextNode(label));
   const v = el("span"); if (typeof value === "string") v.textContent = value; else v.append(...value);
   d.append(l, el("span", "dots"), v);
+  // a second figure (a change, a share) in its own narrow column, right-aligned like the first
+  if ("c2" in o) { d.classList.add("two"); v.className = (v.className ? v.className + " " : "") + "c1"; const c = el("span", "c2"); if (o.c2 != null) { if (typeof o.c2 === "string") c.textContent = o.c2; else c.append(o.c2); } d.append(c); }
   if (o.onclick) { d.onclick = o.onclick; d.tabIndex = 0; d.onkeydown = e => { if (e.key === "Enter") o.onclick(); }; }
   return d;
 }
+
+// the line above a list naming its two columns, with an italic label of its own on the left
+function colHead(label, a, b) { const d = lead(label, a, { italic: true, c2: b }); d.classList.add("colh"); return d; }
 
 /* ---------- stepping through periods: a year, or a month once you click into one ---------- */
 function nextPeriod(dir, fys = fyList()) {
@@ -499,32 +504,25 @@ function renderSummary(rg) {
   const than = { year: "last year", "3m": "the 3 months before", month: "the month before" }[rg.kind];
   // against the period before, in brackets after each figure; the heading says what it's compared with
   const change = (a, b) => { if (rg.kind === "all" || !b) return ""; const c = (Math.abs(a) - Math.abs(b)) / Math.abs(b); return (c >= 0 ? "+" : "−") + pct(Math.abs(c)); };
-  const cols = [
-    [words().rev, f.income, "g", change(f.income, p.income)],
-    [words().cost, -f.costs, "r", change(f.costs, p.costs)],
-    [words().pbt, f.profit, f.profit < 0 ? "r" : "g", f.income > 0 && Math.abs(f.profit / f.income) <= 5 ? pct(f.profit / f.income) + " " + words().of : ""]
-  ];
+  // amount, then its change against the period before in a column of its own
+  const rows = [[words().rev, f.income, "g", change(f.income, p.income)], [words().cost, -f.costs, "r", change(f.costs, p.costs)]];
   const bud = personal && monthlyBudget();
   if (bud) {
     const planned = bud.spend * monthsElapsed(rg), over = -f.costs - planned;
-    cols.push(["budget", planned, "", [el("span", over > 0.5 ? "r" : "g", over > 0.5 ? money(over) + " over" : money(-over) + " under")]]);
+    rows.push(["budget", planned, "", ""], [over > 0.5 ? "over budget" : "under budget", Math.abs(over), over > 0.5 ? "r" : "g", ""]);
   }
-  if (!personal) cols.push(["tax due (estimate)", f.tax, "r", f.taxPaid > 0.5 ? money(f.taxPaid) + " paid" : "none paid"]);
-  cols.push(["cash", f.cash, f.cash < 0 ? "r" : "g", rg.kind === "all" ? "" : change(f.cash, p.cash)]);
-  const bi = cols.findIndex(c => c[0] === "budget"); if (bi > 2) cols.splice(2, 0, cols.splice(bi, 1)[0]);
+  rows.push([words().pbt, f.profit, f.profit < 0 ? "r" : "g", change(f.profit, p.profit)]);
+  if (!personal) rows.push(["tax due (estimate)", f.tax, "r", change(f.tax, p.tax)], ["tax paid", f.taxPaid, "", change(f.taxPaid, p.taxPaid)]);
+  rows.push(["cash", f.cash, f.cash < 0 ? "r" : "g", rg.kind === "all" ? "" : change(f.cash, p.cash)]);
   if (personal) {
     // net worth: your cash, plus what the companies owe you on your director's loan (minus what you owe them)
     const loan = c => balance(c, r => ["director's loan", "business costs paid personally"].includes(r.category), ["ie ltd", "uk ltd", "personal"]);
     const nw = f.cash + loan(rg.to), nwp = rg.kind === "all" ? null : (p.cash || 0) + loan(prevRange(rg).to);
-    cols.push(["net worth", nw, nw < 0 ? "r" : "g", nwp == null ? "" : change(nw, nwp)]);
+    rows.push(["net worth", nw, nw < 0 ? "r" : "g", nwp == null ? "" : change(nw, nwp)]);
   }
-  // a list like the sections below: each figure coloured, its comparison in brackets after it
   const heading = rg.kind === "all" ? "since " + longDate(rg.from) : "compared with " + than;
-  $("#summary").replaceChildren(el("i", "mt", heading), ...cols.map(([label, v, cls, note]) => {
-    const val = [el("span", cls || null, money(v))];
-    if (note && (Array.isArray(note) ? note.length : true)) { val.push(document.createTextNode(" (")); if (Array.isArray(note)) val.push(...note); else val.push(document.createTextNode(note)); val.push(document.createTextNode(")")); }
-    return lead(label, val);
-  }));
+  $("#summary").replaceChildren(colHead(heading, "amount", rg.kind === "all" ? "" : "change"),
+    ...rows.map(([label, v, cls, note]) => lead(label, [el("span", cls || null, money(v))], { c2: note || "" })));
 }
 
 // the months the chart shows: the financial year, everything since the start, or the 12 months up to the period picked
@@ -745,11 +743,16 @@ function renderFlow(rg) {
   const w = words(), personal = dash.scope === "personal";
   $("#flowTitle").textContent = w.box;
   // each group's heading carries its total and selects the whole group
-  list.replaceChildren(lead(w.rev, money(allInc) + pctOf(profit, allInc), { cls: "hd", italic: true, sel: isSel("rev", null), onclick: () => go("rev", null) }));
-  streams.forEach(s => list.append(lead(s.label, money(s.v) + (personal ? "" : pctOf(s.margin, s.v)), { sel: isSel("rev", s.label), onclick: () => go("rev", s.label) })));
-  list.append(lead(w.cost, money(-total(costRows)), { cls: "hd group", italic: true, sel: isSel("cost", null), onclick: () => go("cost", null) }));
-  cats.slice(0, 6).forEach(c => list.append(lead(catName(c.label), money(-c.v), { sel: isSel("cost", c.label), onclick: () => go("cost", c.label) })));
-  const rest = cats.slice(6); if (rest.length) list.append(lead("everything else", money(-rest.reduce((a, c) => a + c.v, 0)), { onclick: () => openTx({ group: "cost", notIn: cats.slice(0, 6).map(c => c.label) }, "everything else") }));
+  // amount and a percentage in two columns: for revenue, what each stream keeps (the heading: the whole margin);
+  // for costs, each one as a share of revenue, the same numbers as on the donut
+  const pc = (m, v) => v > 0 ? pct(m / v) : "";
+  const costSum = -total(costRows);
+  list.replaceChildren(colHead("", "amount", "%"));
+  list.append(lead(w.rev, money(allInc), { cls: "hd", italic: true, c2: pc(profit, allInc), sel: isSel("rev", null), onclick: () => go("rev", null) }));
+  streams.forEach(s => list.append(lead(s.label, money(s.v), { c2: personal ? pc(s.v, allInc) : pc(s.margin, s.v), sel: isSel("rev", s.label), onclick: () => go("rev", s.label) })));
+  list.append(lead(w.cost, money(costSum), { cls: "hd group", italic: true, c2: pc(costSum, allInc), sel: isSel("cost", null), onclick: () => go("cost", null) }));
+  cats.slice(0, 6).forEach(c => list.append(lead(catName(c.label), money(-c.v), { c2: pc(-c.v, allInc), sel: isSel("cost", c.label), onclick: () => go("cost", c.label) })));
+  const rest = cats.slice(6), restV = -rest.reduce((a, c) => a + c.v, 0); if (rest.length) list.append(lead("everything else", money(restV), { c2: pc(restV, allInc), onclick: () => openTx({ group: "cost", notIn: cats.slice(0, 6).map(c => c.label) }, "everything else") }));
 
   // what the chart shows for the selection
   let title, items, kind;
@@ -844,8 +847,11 @@ function renderCash(rg) {
   const accounts = [...new Set(data.rows.filter(r => scopeEntities().includes(r.entity)).map(r => r.account))];
   const items = accounts.map(a => ({ label: a, v: balance(to, r => r.account === a) })).filter(i => Math.abs(i.v) >= 0.5).sort((a, b) => b.v - a.v);
   if (dash.acct && !items.find(i => i.label === dash.acct)) dash.acct = null;
-  list.replaceChildren(lead("accounts", money(balance(to)), { cls: "hd", italic: true, sel: !dash.acct, onclick: () => { dash.acct = null; renderCash(rg); } }));
-  items.forEach(i => list.append(lead(i.label, money(i.v), { sel: i.label === dash.acct, onclick: () => { dash.acct = i.label; renderCash(rg); } })));
+  // each account's balance and its share of the total
+  const all = balance(to), sh = v => all > 0.5 ? pct(v / all) : "";
+  list.replaceChildren(colHead("", "balance", "share"));
+  list.append(lead("accounts", money(all), { cls: "hd", italic: true, c2: all > 0.5 ? "100%" : "", sel: !dash.acct, onclick: () => { dash.acct = null; renderCash(rg); } }));
+  items.forEach(i => list.append(lead(i.label, money(i.v), { c2: sh(i.v), sel: i.label === dash.acct, onclick: () => { dash.acct = i.label; renderCash(rg); } })));
 
   // month-end cash for the year, one line
   const start = new Date(dash.fy + "T00:00:00"), today = iso(new Date()), pts = [], fn = dash.acct ? r => r.account === dash.acct : null;
