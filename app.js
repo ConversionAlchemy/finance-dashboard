@@ -916,6 +916,8 @@ function renderFilings() {
 /* ---------- budget: a monthly target per line, beside what a normal month looks like ----------
    lines live on a "budget" tab in the sheet (mode, group, line, per month), one row each, added and edited here like a sheet.
    a line is compared with the category or stream of the same name; a line with no match (investments, say) is just a target. */
+// how each group is named in the budget (the sheet keeps the short keys)
+const BUD_LABEL = { revenue: "revenue", costs: "operating expenses", income: "gross income", spending: "living expenses", saving: "savings and investments" };
 const BUD_GROUPS = { business: [["revenue", "in"], ["costs", "out"]], personal: [["income", "in"], ["spending", "out"], ["saving", "save"]] };
 function budgetRows() {
   const t = tabByName("budget"); if (!t) return [];
@@ -1119,7 +1121,7 @@ function budgetAsText() {
   [["business", "monthly company budget"], ["personal", "monthly director budget"]].forEach(([mode, title]) => {
     out.push(title);
     BUD_GROUPS[mode].forEach(([g, kind]) => {
-      out.push(g);
+      out.push(BUD_LABEL[g] || g);
       budLinesFor(mode).filter(r => r.group === g).forEach(r => { const t = typ(mode, kind, r.line); out.push("- " + r.line + ": " + Math.round(r.amount) + (t != null ? " (normal month " + Math.round(t) + ")" : "")); });
     });
     if (mode === "business") { const ct = budLinesFor("business").find(r => r.line === "corporation tax rate"); out.push("corporation tax rate: " + (ct ? ct.amount : 12.5) + "%"); }
@@ -1140,7 +1142,7 @@ function parseBudgetText(text) {
     if (/business|company/.test(ln) && /budget/.test(ln)) { mode = "business"; group = null; out[mode] = out[mode] || []; return; }
     if (/director|personal/.test(ln) && /budget/.test(ln)) { mode = "personal"; group = null; out[mode] = out[mode] || []; return; }
     if (!mode) return;
-    const g = BUD_GROUPS[mode].find(([n]) => ln.replace(/:$/, "") === n); if (g) { group = g[0]; return; }
+    const g = BUD_GROUPS[mode].find(([n]) => [n, BUD_LABEL[n]].includes(ln.replace(/:$/, ""))); if (g) { group = g[0]; return; }
     const m = /^[-•–]?\s*(.+?)\s*[:=]\s*[$€£]?\s*(-?[\d,]+(?:\.\d+)?)\s*(%)?/.exec(ln); if (!m) return;
     const name = m[1].replace(/\s*\(.*\)$/, "").trim(), v = parseFloat(m[2].replace(/,/g, ""));
     if (!isFinite(v)) return;
@@ -1194,7 +1196,7 @@ function renderBudget() {
     const mine = lines.filter(r => r.group === g), ts = mine.map(r => typOf(mode, kind, r)), has = ts.some(t => t != null);
     const bt = mine.reduce((a, r) => a + r.amount, 0) + (extraRows || 0), tt = ts.reduce((a, t) => a + (t || 0), 0);
     const insertAt = lines.reduce((at, r, i) => r.group === g ? i + 1 : at, lines.length);
-    return { label: g, rows: mine, total: bt, head: { right: [money(bt)].concat(has ? [{ t: "(" + money(tt) + ")", cls: "sub" }] : []) },
+    return { label: BUD_LABEL[g] || g, rows: mine, total: bt, head: { right: [money(bt)].concat(has ? [{ t: "(" + money(tt) + ")", cls: "sub" }] : []) },
       add: (c, v) => { if (c === 0) { const t = typical(kind, lc(v), mode); lines.splice(insertAt, 0, { group: g, line: lc(v), amount: t ? Math.round(t / 10) * 10 : 0 }); } else lines.splice(insertAt, 0, { group: g, line: "new line", amount: amount(v) }); return true; } };
   };
 
@@ -1207,26 +1209,25 @@ function renderBudget() {
     lines: [
       { at: "before", label: "monthly company budget", cls: "title" },
       { label: "profit before tax", right: [{ t: money(pbt), cls: pbt < 0 ? "r" : "" }] },
-      { label: "corporation tax at " + (Math.round(ct * 1000) / 10) + "%", right: [{ t: money(-tax), cls: "r" }] },
+      { label: "corporation tax (" + (Math.round(ct * 1000) / 10) + "%)", right: [{ t: money(-tax), cls: "r" }] },
       { label: "profit after tax", right: [{ t: money(pat), cls: pat < 0 ? "r" : "" }] },
-      { label: "dividends to you", right: [money(-dividends)] },
-      { label: "left in the company", right: [{ t: money(kept), cls: kept < 0 ? "r" : "g" }] }
+      { label: "dividends", right: [money(-dividends)] },
+      { label: "net profit", right: [{ t: money(kept), cls: kept < 0 ? "r" : "g" }] }
     ] });
   // your salary is one of the company's costs, set in the director budget: shown at the end of costs
-  const costHead = [...bizHost.querySelectorAll(".lead.hd")].find(d => /^costs/.test(d.textContent));
+  const costHead = [...bizHost.querySelectorAll(".lead.hd")].find(d => /^operating expenses/.test(d.textContent));
   if (costHead) {
     let last = costHead; while (last.nextElementSibling && last.nextElementSibling.classList.contains("cells")) last = last.nextElementSibling;
-    const sal = el("div", "lead fixed"); sal.title = "set in the director budget"; sal.append(el("span", "lv", "your salary"), el("span", "dots"), el("span", "rv", money(salary)));
+    const sal = el("div", "lead fixed"); sal.title = "set in the director budget"; sal.append(el("span", "lv", "director's salary"), el("span", "dots"), el("span", "rv", money(salary)));
     last.before(sal);
     costHead.querySelector(".rv").firstChild.textContent = money(cost.total + salary);
   }
   // the corporation tax rate is typed into its own line
-  const ctEl = [...bizHost.querySelectorAll(".lead.hd")].find(d => /^corporation tax at/.test(d.textContent));
-  if (ctEl) { const l = ctEl.querySelector(".lv"); l.replaceChildren("corporation tax at "); const v = el("span", "v rate", (Math.round(ct * 1000) / 10) + "%"); l.append(v);
+  const ctEl = [...bizHost.querySelectorAll(".lead.hd")].find(d => /^corporation tax \(/.test(d.textContent));
+  if (ctEl) { const l = ctEl.querySelector(".lv"); const v = el("span", "v rate", (Math.round(ct * 1000) / 10) + "%"), w = el("span"); w.append("corporation tax (", v, ")"); l.replaceChildren(w);
     v.onclick = () => { const input = el("input", "cell-in num"); input.value = String(ctRow.amount); input.style.width = "6ch"; v.replaceWith(input); input.focus(); input.select();
       let done = false; const fin = ok => { if (done) return; done = true; const x = amount(input.value); if (ok && x >= 0 && x < 100 && x !== ctRow.amount) { ctRow.amount = x; save(); } else renderBudget(); };
       input.onkeydown = e => { if (e.key === "Enter") fin(true); if (e.key === "Escape") fin(false); e.stopPropagation(); }; input.onblur = () => fin(true); }; }
-
   bizHost.querySelector(".lead.title .rv").append(exportBtn(() => downloadCSV("monthly company budget", leadsCSV(bizHost))));
   // you, as director: what the company pays you, the tax on it, what you take home, and what you spend and save
   const dk = { income: "in", spending: "out", saving: "save" };
@@ -1236,14 +1237,16 @@ function renderBudget() {
     cols: cols("personal", dk), groups: [inc, spend, saveG],
     lines: [
       { at: "before", label: "monthly director budget", cls: "title" },
-      { label: "income tax, usc and prsi", right: [{ t: money(-t.total), cls: "r" }], title: "income tax " + money(t.it) + ", usc " + money(t.usc) + ", prsi " + money(t.prsi) + " a month, at " + IE_TAX.year + " irish rates" },
-      { label: "take-home", right: [money(home)] },
-      { label: left < 0 ? "short each month" : "spare each month", right: [{ t: money(Math.abs(left)), cls: left < 0 ? "r" : "g" }], title: "take-home, less spending and saving" }
+      { label: "income tax", right: [{ t: money(-t.it), cls: "r" }], title: IE_TAX.year + " irish rates" },
+      { label: "usc", right: [{ t: money(-t.usc), cls: "r" }] },
+      { label: "prsi", right: [{ t: money(-t.prsi), cls: "r" }] },
+      { label: "net income", right: [money(home)] },
+      { label: "net profit", right: [{ t: money(left), cls: left < 0 ? "r" : "g" }] }
     ] });
   dirHost.querySelector(".lead.title .rv").append(exportBtn(() => downloadCSV("monthly director budget", leadsCSV(dirHost))));
   requestAnimationFrame(() => {
     const at = (host, test) => [...host.querySelectorAll(".lead.hd")].find(d => test(d.textContent));
-    [[d => /^revenue/.test(d), d => /^income/.test(d)], [d => /^costs/.test(d), d => /^spending/.test(d)], [d => /^profit before tax/.test(d), d => /^income tax/.test(d)]].forEach(([a, b]) => {
+    [[d => /^revenue/.test(d), d => /^gross income/.test(d)], [d => /^operating expenses/.test(d), d => /^living expenses/.test(d)], [d => /^profit before tax/.test(d), d => /^income tax/.test(d)]].forEach(([a, b]) => {
       const x = at(bizHost, a), y = at(dirHost, b); if (!x || !y) return;
       const dy = x.getBoundingClientRect().top - y.getBoundingClientRect().top;
       if (dy > 0.5) y.style.marginTop = (parseFloat(getComputedStyle(y).marginTop) + dy) + "px"; else if (dy < -0.5) x.style.marginTop = (parseFloat(getComputedStyle(x).marginTop) - dy) + "px";
@@ -1380,8 +1383,8 @@ function renderFilingList() {
   FILING_GROUPS.forEach(g => {
     const box = el("div"); wrap.append(box);
     filSel[g] = filSel[g] || { r: -1, c: 1 };
-    const draw = () => { const rows = log.filter(f => f.group === g), left = rows.filter(f => !f.done).length; return leadGrid({ host: box, key: "filings " + g, cls: "filings", state: filSel[g], render: draw, cols,
-      groups: [{ label: g, rows, head: { right: [{ t: left ? left + " left" : "all done", cls: left ? "" : "g" }] },
+    const draw = () => { const rows = log.filter(f => f.group === g); return leadGrid({ host: box, key: "filings " + g, cls: "filings", state: filSel[g], render: draw, cols,
+      groups: [{ label: g, rows,
         add: (c, v) => { const f = { group: g, filing: "", period: "", due: "", done: false, submitted: "", note: "", status: "to do" }; cols[c].set(f, v); if (!f.filing) f.filing = "new filing"; log.push(f); return true; } }],
       rowCls: f => f.done ? "done" : "", rowId: f => String(log.indexOf(f)),
       changed: save, remove: f => log.splice(log.indexOf(f), 1) }); };

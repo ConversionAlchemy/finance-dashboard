@@ -461,3 +461,4 @@ dialog.paste .actions .box { height: 40px; width: var(--bw); }
 dialog.paste .actions .primary { font-weight: 700; outline: 2px solid var(--ink); outline-offset: 2px; }
 dialog.paste .r { margin: 8px 0 0; }
 .lgrid .lead.fixed, .lgrid .lead.fixed * { color: var(--grey); }
+.lgrid.filings .lead.hd > .dots { visibility: hidden; }
