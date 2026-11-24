@@ -452,8 +452,8 @@ html.fit .sheet-scroll { max-height: none !important; }
 .cap { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
 .cap > .mt { margin: 0; }
 #filingList { position: relative; }
-#filingList > .corner { position: absolute; top: -4px; right: 0; z-index: 1; }
-#filingList .filing-grid > div:nth-child(2) .lgrid > .lead:first-child { padding-right: 40px; }
+#filingList > .corner { position: absolute; top: -4px; right: 0; z-index: 1; display: flex; gap: 8px; }
+#filingList .filing-grid > div:nth-child(2) .lgrid > .lead:first-child { padding-right: 76px; }
 .lgrid .lead.title { align-items: center; }
 .lgrid .lead.title > .rv { overflow: visible; }
 /* paste from ai and undo under the budget's name */
@@ -492,5 +492,4 @@ dialog.paste .r { margin: 8px 0 0; }
 .lgrid.cols .lead.done .v:not(.tick) { text-decoration: line-through; }
 .lgrid.cols .lead.done .v.tick { border-color: var(--ink); }
 .lgrid.cols .lead.done .v.tick.on { background-color: var(--ink); }
-.lgrid .reveal { margin-top: 6px; padding: 0; border: 0; background: none; color: var(--ink); text-decoration: underline; cursor: pointer; }
-.lgrid .reveal:hover { color: var(--grey); }
+#filingList > .corner .box.icon[aria-pressed="true"] { background: var(--card); outline: 2px solid var(--ink); outline-offset: 2px; }

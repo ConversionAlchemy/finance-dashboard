@@ -1394,8 +1394,10 @@ async function saveFilings() {
   } catch (e) { status(e.expired ? "signed out. sign in again to save." : e.message); }
 }
 // four groups, two side by side: the closing work beside the uk company's history, the irish company beside self assessment.
-// each row in columns: tick, filing, period, date, note. done ones are hidden until you reveal them.
-const filShow = {};
+// each row in columns: tick, filing, period, date, note. done ones are hidden until the eye in the corner shows them.
+let filShowDone = false;
+const EYE_ICON = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.5"/></svg>';
+const EYE_OFF_ICON = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.5"/><path d="M3 17L17 3"/></svg>';
 function renderFilingList() {
   const log = filingLog(), today = iso(new Date()), host = $("#filingList");
   const save = () => { clearTimeout(filSaveTimer); filSaveTimer = setTimeout(saveFilings, 600); renderFilings(); };
@@ -1413,14 +1415,12 @@ function renderFilingList() {
     const box = el("div"); wrap.append(box);
     filSel[g] = filSel[g] || { r: -1, c: 1 };
     const draw = () => {
-      const all = log.filter(f => f.group === g), done = all.filter(f => f.done).length, rows = filShow[g] ? all : all.filter(f => !f.done);
+      const all = log.filter(f => f.group === g), rows = filShowDone ? all : all.filter(f => !f.done);
       leadGrid({ host: box, key: "filings " + g, cls: "filings cols", state: filSel[g], render: draw, cols,
-        groups: [{ label: g, rows,
+        groups: [{ label: g + " (" + all.length + ")", rows,
           add: (c, v) => { const f = { group: g, filing: "", period: "", due: "", done: false, submitted: "", note: "", status: "to do" }; cols[c].set(f, v); if (!f.filing) f.filing = "new filing"; log.push(f); return true; } }],
         rowCls: f => f.done ? "done" : isLate(f, today) ? "late" : "", rowId: f => String(log.indexOf(f)),
         changed: save, remove: f => log.splice(log.indexOf(f), 1) });
-      // like a task list: what's done is tucked away, one click shows it
-      if (done) { const b = el("button", "reveal", filShow[g] ? "hide completed" : "reveal completed (" + done + ")"); b.type = "button"; b.onclick = () => { filShow[g] = !filShow[g]; draw(); }; box.firstChild.append(b); }
     };
     draw();
   });
@@ -1432,8 +1432,13 @@ function renderFilingList() {
       return '<h3>' + esc(g) + "</h3>" + '<table class="stmt doc-f"><colgroup><col style="width:34%"><col style="width:15%"><col style="width:20%"><col style="width:31%"></colgroup>' + (open.length ? '<tr class="grp"><td colspan="4">to do</td></tr>' + open.map(row).join("") : "") + (done.length ? '<tr class="grp"><td colspan="4">done</td></tr>' + done.map(row).join("") : "") + "</table>"; }).join("");
     printDoc("conversion alchemy: filings", "as at " + longDate(today), body);
   });
-  exp.classList.add("corner");
-  host.replaceChildren(exp, wrap);
+  // the eye shows or hides what's been done, across all four groups
+  const eye = el("button", "box icon mini"); eye.type = "button";
+  const eyeSet = () => { const t = filShowDone ? "hide completed" : "show completed"; eye.title = t; eye.setAttribute("aria-label", t); eye.setAttribute("aria-pressed", String(filShowDone)); eye.innerHTML = filShowDone ? EYE_OFF_ICON : EYE_ICON; };
+  eye.onclick = () => { filShowDone = !filShowDone; renderFilingList(); };
+  eyeSet();
+  const corner = el("div", "corner"); corner.append(eye, exp);
+  host.replaceChildren(corner, wrap);
 }
 
 // a filing clicked anywhere scrolls to it in the filings section
