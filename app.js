@@ -368,16 +368,6 @@ function taxFor(e, rg) {
   const t = ent.rate == null ? ukTax(p) : Math.max(0, p) * (ent.rate || 0);
   return t * rate(rg.to.slice(0, 7), e === "uk ltd" ? "GBP" : "EUR", dash.cur);
 }
-function taxOwed(d) {
-  let owed = 0;
-  scopeEntities().filter(e => e !== "personal").forEach(e => {
-    const ye = (data.ent[e] || {}).ye || 12, cur = fyStartFor(d, ye), prev = addMonths(cur, -12);
-    const accrued = taxFor(e, { from: iso(prev), to: iso(monthEnd(addMonths(cur, -1))) }) + taxFor(e, { from: iso(cur), to: d });
-    const paid = -total(sel({ from: iso(prev), to: d }, r => r.group === "tax", [e]));
-    owed += Math.max(0, accrued - paid);
-  });
-  return owed;
-}
 function figures(rg) {
   const rows = sel(rg);
   const income = total(rows.filter(isIncome));
@@ -547,7 +537,6 @@ function chartWindow() {
   if (dash.period === "fy") return { start: new Date(dash.fy + "T00:00:00"), n: 12 };
   return { start: addMonths(thisMonth, -12), n: 12 };
 }
-let filedRows = {}, subGroups = {};
 // google-style hover for charts: a dotted guide, a dot on each series and its value beside it, drawn in the chart itself
 // google-sheets-style hover: a dot on each series, and one block beside the guide naming the point and each value in it,
 // so the chart needs no key underneath
@@ -557,7 +546,7 @@ function hoverBlock(x, top, lines, W, H, B) {
   // lines: [{ t, c?, hollow?, title? }]; drawn beside x, flipped left when it would run off the right edge
   const lw = Math.max(...lines.map(l => tw(l.t) + (l.title ? 12 : 30))), h = lines.length * 19 + 8;
   // l.sub: a detail line under the one before it, indented, no dot
-  const lx = x + 12 + lw <= W ? x + 10 : x - 10 - lw, ty = Math.max(2, Math.min(top, B - h));
+  const lx = Math.max(0, x + 12 + lw <= W ? x + 10 : x - 10 - lw), ty = Math.max(2, Math.min(top, B - h));
   let s = '<rect x="' + lx + '" y="' + ty + '" width="' + lw + '" height="' + h + '" style="fill:var(--card);stroke:var(--hair)"/>';
   lines.forEach((l, i) => {
     const cy = ty + 14 + i * 19;
@@ -592,98 +581,129 @@ function chartBuckets(rg) {
   }
   return { unit: step === 1 ? "day" : "week", list };
 }
+// the summary as a timeline: the period across the top like a calendar's header, each filing as a small chip under the
+// month (or week, or day) it falls in, stacked when there are several, and below it revenue as a dotted green line,
+// costs as a red line and profit as a green line (red where it dips below nothing). the strip runs a little past the
+// period so the next deadlines are always in view
+const CHIP_SHORT = [[/corporation tax/, "ct"], [/self assessment/, "sa"], [/confirmation statement/, "cs"], [/annual return/, "ar"], [/vat return/, "vat"], [/preliminary tax/, "prelim"], [/income tax/, "it"], [/paye final submission/, "paye"], [/final submission/, "final"], [/deregistration/, "dereg"], [/registration/, "reg"], [/repayment/, "repay"]];
+const chipName = n => { const m = /\(([^)]*\d[^)]*)\)/.exec(n); if (m) return m[1]; let t = n.replace(/\s*\([^)]*\)/g, ""); CHIP_SHORT.forEach(([re, r]) => { t = t.replace(re, r); }); return t; };
 function renderMonthChart(rg) {
-  const host = $("#monthChart"); host.className = "chart";
-  const today = iso(new Date()), bk = chartBuckets(rg), N = bk.list.length, monthly = bk.unit === "month";
-  const back = (d, n) => { const x = new Date(d + "T00:00:00"); return iso(n === -12 ? new Date(x.getFullYear() - 1, x.getMonth(), x.getDate()) : new Date(x.getFullYear(), x.getMonth(), x.getDate() + n)); };
-  const series = bk.list.map(b => {
-    const rows = sel(b);
-    // the same stretch a year earlier (the same weekdays for weeks and days), drawn as a hatched shadow behind the bar; not on all time
-    const ly = dash.period === "all" ? null : total(sel({ from: back(b.from, b.ly), to: back(b.to, b.ly) }).filter(isIncome));
-    return Object.assign({}, b, { started: b.from <= today, inc: total(rows.filter(isIncome)), cost: -total(rows.filter(isCost)), ly });
+  const host = $("#monthChart"); host.className = "chart timeline";
+  const today = iso(new Date()), bk = chartBuckets(rg), monthly = bk.unit === "month", all = dash.period === "all";
+  const day = d => new Date(d + "T00:00:00"), plus = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  const cols = bk.list.map(b => Object.assign({}, b));
+  // a few columns past the period, for what's coming up next
+  // (only as far as the last open filing in them, so the chart keeps its room when nothing is due)
+  if (!all) {
+    const last = cols[cols.length - 1];
+    for (let k = 1; k <= (monthly ? 3 : bk.unit === "week" ? 4 : 7); k++) {
+      if (monthly) { const m = addMonths(day(last.from), k); cols.push({ from: iso(m), to: iso(monthEnd(m)), m: iso(m).slice(0, 7), mi: m.getMonth(), label: MONTHS[m.getMonth()], extra: true }); }
+      else { const step = bk.unit === "week" ? 7 : 1, d = plus(day(last.from), step * k); cols.push({ from: iso(d), to: iso(plus(d, step - 1)), d: d.getDate(), mi: d.getMonth(), label: d.getDate() + " " + MONTHS[d.getMonth()], extra: true }); }
+    }
+  }
+  // the filings that still need doing, for the companies (or you) in view
+  const ents = scopeEntities(), log = filingLog();
+  const open = log.map((f, row) => ({ f, row, d: f.due })).filter(o => !o.f.done && o.d && ents.includes(groupWho(o.f.group)));
+  while (cols.length > bk.list.length && !open.some(o => o.d >= cols[cols.length - 1].from && o.d <= cols[cols.length - 1].to)) cols.pop();
+  const N = cols.length;
+  cols.forEach(c => {
+    c.started = c.from <= today && !c.extra;
+    if (!c.started) return;
+    const rows = sel(c); c.inc = total(rows.filter(isIncome)); c.cost = -total(rows.filter(isCost)); c.net = c.inc - c.cost;
   });
-  const start = new Date(series[0].from + "T00:00:00");
-  const mb = dash.scope === "personal" ? monthlyBudget() : null, per = monthly ? 1 : bk.unit === "week" ? 7 / 30.44 : 1 / 30.44;
-  const bud = mb ? { spend: mb.spend * per } : null;
-  const max = niceMax(Math.max(1, bud ? bud.spend : 0, ...series.map(s => Math.max(s.inc, s.cost, s.ly || 0))));
-  const chart = el("div");
-  host.replaceChildren(chart);
-  const fyStart = series[0].from, fyEnd = series[N - 1].to, fyStartMonth = scopeYe() % 12;
-  // which bar a date falls in
-  const idx = d => series.findIndex(b => d >= b.from && d <= b.to);
-  const dated = upcomingFilings();
-  const laterGroups = dated.filter(g => g.when > fyEnd), padR = 12;
-  svgBox(chart, 250, Wd => {
-    const L = 40, base = 190, y = v => base - v / max * 180, slot = (Wd - L - padR) / N, many = monthly && N > 18; let s = "";
-    const txt = (x, t) => '<text x="' + x + '" y="' + (base + 20) + '" ' + F + ">" + t + "</text>";
-    // months: the name (or the year on all time); weeks: the day they start; days: every 7th day, with the month on the first
-    const axisLabel = (d, k, x) => monthly ? (many ? (d.mi === 0 ? txt(L + k * slot, d.m.slice(0, 4)) : "") : txt(x, slot < 30 ? d.label[0] : d.label))
-      : bk.unit === "week" ? (slot >= 58 || k % 2 === 0 ? txt(x, d.label) : "")
-      : ((d.d - 1) % 7 === 0 ? txt(L + k * slot, d.d === 1 || k === 0 ? d.label : String(d.d)) : "");
-    const cols = [];
-    s += '<defs><pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6"><path d="M0 0L6 6M6 0L0 6" style="stroke:var(--hatch)" stroke-width="0.9"/></pattern></defs>';
-    [0, 0.25, 0.5, 0.75, 1].forEach(t => { const v = max * t; s += '<line x1="' + L + '" x2="' + (Wd - padR) + '" y1="' + y(v) + '" y2="' + y(v) + '" style="stroke:' + (t ? "var(--grid)" : "currentColor") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (t ? short(v) : "0") + "</text>"; });
-    series.forEach((d, k) => {
-      const x = L + k * slot + slot * 0.14, bw = slot * 0.34, on = !monthly || (d.m >= rg.from.slice(0, 7) && d.m <= rg.to.slice(0, 7));
-      const ghost = d.ly > 0.5 ? '<rect x="' + (x - 3) + '" y="' + y(d.ly) + '" width="' + (bw + 6) + '" height="' + (base - y(d.ly)) + '" fill="url(#hatch)"/>' : "";
-      s += '<g opacity="' + (on ? 1 : 0.3) + '">' + ghost + '<rect x="' + x + '" y="' + y(Math.max(0, d.inc)) + '" width="' + bw + '" height="' + (base - y(Math.max(0, d.inc))) + '" fill="' + GREEN + '"/>'
-        + '<rect x="' + (x + bw + 2) + '" y="' + y(Math.max(0, d.cost)) + '" width="' + bw + '" height="' + (base - y(Math.max(0, d.cost))) + '" fill="' + RED + '"/></g>'
-        + axisLabel(d, k, x);
-      // a dotted line where each financial year starts
-      if (monthly && k && d.mi === fyStartMonth) { const lx = L + k * slot; s += '<line x1="' + lx + '" x2="' + lx + '" y1="4" y2="' + base + '" style="stroke:var(--fyline)" stroke-dasharray="2 3"/><text x="' + (lx + 4) + '" y="40" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:var(--grey)" font-style="italic">' + fyLabel(new Date(d.m + "-01T00:00:00"), scopeYe()) + "</text>"; }
-      if (bud && slot >= 44 && d.started) { const u = bud.spend - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:' + (u < 0 ? RTEXT : GTEXT) + '">' + (u < 0 ? "+" : "−") + short(Math.abs(u)) + "</text>"; }
-      else if (slot >= 44 && d.started && (d.inc || d.cost)) { const n = d.inc - d.cost; s += '<text x="' + x + '" y="' + (base + 40) + '" font-size="14" font-family="PT Sans, Arial, sans-serif" style="fill:' + (n < 0 ? RTEXT : GTEXT) + '">' + (n < 0 ? "" : "+") + short(n) + "</text>"; }
-      cols.push(hoverCol({ x: L + k * slot, w: slot, gx: x + bw + 1, T: 4, B: base, W: Wd - padR, attrs: ' data-k="' + k + '"',
-        title: monthly ? MONTHS_LONG[d.mi] + " " + d.from.slice(0, 4) : bk.unit === "day" ? longDate(d.from) : longDate(d.from) + " – " + longDate(d.to),
-        pts: [{ x: x + bw / 2, y: y(d.inc), c: GREEN, label: words().rev, t: money(d.inc) }, { x: x + bw * 1.5 + 2, y: y(d.cost), c: RED, label: words().cost, t: money(d.cost) },
-          d.ly > 0.5 ? { x: x + bw / 2, y: y(d.ly), c: "var(--hatch)", hollow: true, label: "a year earlier", t: money(d.ly) + " (" + (d.inc >= d.ly ? "+" : "−") + pct(Math.abs(d.inc - d.ly) / d.ly) + ")" } : null,
-          bud ? { x: x + bw * 1.5 + 2, y: y(bud.spend), c: "var(--rtext)", hollow: true, label: "budget", t: money(bud.spend) } : null] }));
+  // each open filing under the column its due date falls in
+  const at = d => cols.findIndex(c => d >= c.from && d <= c.to);
+  const chips = cols.map(() => []);
+  open.forEach(o => { const k = at(o.d); if (k >= 0) chips[k].push(o); });
+  chips.forEach(cs => cs.sort((a, b) => a.d < b.d ? -1 : 1));
+  const many = monthly && N > 18;
+  // chips laid out like a calendar's events: each one as wide as its name, starting at its column (pulled back from the
+  // right edge if it would run off), and dropped to the next row down when it would touch one already placed
+  const CH = 20, rowsUsed = [], placed = [];
+  const layout = (L, R, slot) => {
+    rowsUsed.length = 0; placed.length = 0;
+    const items = many ? chips.map((cs, k) => cs.length ? { k, cs, w: Math.max(18, slot - 4) } : null).filter(Boolean)
+      : chips.flatMap((cs, k) => cs.map(o => ({ k, cs: [o], name: chipName(o.f.filing), w: Math.max(slot - 4, chipName(o.f.filing).length * 6.4 + 10) })));
+    items.forEach(it => {
+      let x = L + it.k * slot + 2; if (x + it.w > R) x = R - it.w;
+      let lvl = 0; while ((rowsUsed[lvl] || []).some(([a, b]) => x < b + 2 && x + it.w > a - 2)) lvl++;
+      (rowsUsed[lvl] = rowsUsed[lvl] || []).push([x, x + it.w]);
+      placed.push(Object.assign(it, { x, lvl }));
     });
-    s += cols.join("");
-    // your monthly spending budget as a dashed line across the chart
-    if (bud) s += '<line x1="' + L + '" x2="' + (Wd - padR) + '" y1="' + y(bud.spend) + '" y2="' + y(bud.spend) + '" style="stroke:var(--rtext)" stroke-dasharray="5 4" stroke-width="1.5"/>';
-    // submissions: a dotted line with a numbered ball on top, at the start of the month they're due in;
-    // anything after this period gathers at the very end of the axis. every ball is the same size
-    const marker = (x, gs, key) => {
-      const n = gs.reduce((a, g) => a + g.items.length, 0);
-      return '<g class="sub hit" data-key="' + key + '">'
-        + '<line x1="' + x + '" x2="' + x + '" y1="21" y2="' + base + '" stroke="currentColor" stroke-dasharray="2 3" pointer-events="none"/>'
-        + '<circle cx="' + x + '" cy="11" r="10" style="fill:var(--card)" stroke="currentColor" stroke-width="1.5"/>'
-        + '<text x="' + x + '" y="15.5" font-size="12" text-anchor="middle" font-family="PT Sans, Arial, sans-serif" fill="currentColor" pointer-events="none">' + n + "</text>"
-        + '<g class="hov" pointer-events="none">' + hoverBlock(x + 4, 26, [{ t: "to submit", title: true }].concat(gs.flatMap(g => g.items).flatMap(i => { const e = filingEstimate(i);
-          return [{ t: i.name + " (" + i.who + ")", c: "currentColor", hollow: true }, { t: [submitText(i), i.deadline ? "due " + longDate(i.deadline) : "", e != null && e > 0.5 ? "about " + money(e) + " tax" : ""].filter(Boolean).join(", "), sub: true }]; })), Wd - padR, 0, base + 60) + "</g></g>";
-    };
-    const byMonth = new Map();
-    dated.filter(g => g.when >= fyStart && g.when <= fyEnd).forEach(g => { const m = idx(g.when); byMonth.set(m, (byMonth.get(m) || []).concat([g])); });
-    subGroups = {}; filedRows = {};
-    byMonth.forEach((gs, k) => { subGroups[k] = gs; s += marker(L + k * slot, gs, k); });
-    if (laterGroups.length) { subGroups.later = laterGroups; s += marker(L + N * slot, laterGroups, "later"); }
-    // filings already sent: a filled ball at the month they went in
-    const ents = scopeEntities(), filedBy = new Map();
-    pastFilings().filter(f => ents.includes(f.who) && f.date >= fyStart && f.date <= fyEnd).forEach(f => { const m = idx(f.date); filedBy.set(m, (filedBy.get(m) || []).concat([f])); });
-    filedBy.forEach((fs, k) => {
-      const x = L + k * slot + (subGroups[k] ? 22 : 0);
-      filedRows["f" + k] = fs[0].row;
-      const fl = fs.map(f => ({ t: f.name + (f.period ? " " + f.period : "") + (ents.length > 1 ? " (" + f.who + ")" : "") + ", filed " + f.text, c: "var(--grey)" }));
-      s += '<g class="sub filed hit" data-key="f' + k + '">'
-        + '<line x1="' + x + '" x2="' + x + '" y1="21" y2="' + base + '" style="stroke:var(--grey)" stroke-dasharray="2 3" pointer-events="none"/>'
-        + '<circle cx="' + x + '" cy="11" r="10" style="fill:var(--grey)" stroke="none"/>'
-        + '<text x="' + x + '" y="15.5" font-size="12" text-anchor="middle" font-family="PT Sans, Arial, sans-serif" style="fill:var(--card)" pointer-events="none">' + fs.length + "</text>"
-        + '<g class="hov" pointer-events="none">' + hoverBlock(x + 4, 26, [{ t: "filed", title: true }].concat(fl), Wd - padR, 0, base + 60) + "</g></g>";
+    return rowsUsed.length;
+  };
+  // a first pass at the real width, only to know how tall the strip is
+  const guessW = Math.max(280, host.clientWidth || 600);
+  const levels = chips.some(c => c.length) ? layout(44, guessW, (guessW - 44) / N) : 0;
+  const head = 26, stripH = head + (levels ? levels * CH + 8 : 4);
+  const vals = cols.filter(c => c.started).flatMap(c => [c.inc, c.cost, c.net]);
+  const hi = niceMax(Math.max(1, ...vals)), loRaw = Math.min(0, ...vals), lo = loRaw < 0 ? -niceMax(-loRaw) : 0;
+  const chart = el("div"); host.replaceChildren(chart);
+  const plotH = 170, H = stripH + plotH + 8;
+  svgBox(chart, H, W => {
+    const L = 44, R = W, slot = (R - L) / N, T = stripH + 6, B = stripH + plotH, y = v => B - (v - lo) / (hi - lo) * (B - T);
+    const cx = k => L + k * slot + slot / 2;
+    let s = '<defs>'
+      + '<clipPath id="belowZero"><rect x="0" y="' + y(0) + '" width="' + W + '" height="' + (B - y(0) + 2) + '"/></clipPath></defs>';
+    // the calendar: a hairline under the header, faint lines between columns, the current column's name in bold
+    s += '<line x1="' + L + '" x2="' + R + '" y1="' + head + '" y2="' + head + '" style="stroke:var(--hair)"/>';
+    cols.forEach((c, k) => {
+      const x = L + k * slot, now = today >= c.from && today <= c.to;
+      // (on all time, a line only where each year starts)
+      if (k && (!many || c.mi === 0)) s += '<line x1="' + x + '" x2="' + x + '" y1="0" y2="' + B + '" style="stroke:var(--grid)"/>';
+      let label = c.label;
+      if (many) label = c.mi === 0 || k === 0 ? c.m.slice(0, 4) : "";
+      else if (monthly && slot < 30) label = c.label[0];
+      else if (!monthly && slot < 46) label = (bk.unit === "day" ? c.d === 1 || k === 0 || (c.d - 1) % 7 === 0 : k % 2 === 0) ? (bk.unit === "day" ? String(c.d) : c.label) : "";
+      if (label) s += '<text x="' + (x + 4) + '" y="17" ' + F + (now ? ' font-weight="700"' : "") + (c.extra ? ' style="fill:var(--grey)"' : "") + ">" + esc(label) + "</text>";
+    });
+    // value axis: three lines, short labels
+    (lo < 0 ? [lo, 0, hi] : [0, hi / 2, hi]).forEach(v => {
+      s += '<line x1="' + L + '" x2="' + R + '" y1="' + y(v) + '" y2="' + y(v) + '" style="stroke:' + (v === 0 ? "currentColor" : "var(--grid)") + '"/>';
+      s += '<text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + (v ? short(v) : "0") + "</text>";
+    });
+    // revenue, costs, profit
+    const done = cols.map((c, k) => ({ c, k })).filter(o => o.c.started);
+    if (done.length) {
+      const P = key => done.map(o => cx(o.k).toFixed(1) + "," + y(o.c[key]).toFixed(1));
+      const one = done.length === 1;
+      if (!one) s += '<polyline points="' + P("inc").join(" ") + '" fill="none" stroke="' + GREEN + '" stroke-width="2" stroke-dasharray="2 4" stroke-linecap="round"/>';
+      if (!one) s += '<polyline points="' + P("cost").join(" ") + '" fill="none" stroke="' + RED + '" stroke-width="2"/>';
+      if (!one) s += '<polyline points="' + P("net").join(" ") + '" fill="none" stroke="' + GREEN + '" stroke-width="2"/>'
+        + (lo < 0 ? '<polyline points="' + P("net").join(" ") + '" fill="none" stroke="' + RED + '" stroke-width="2" clip-path="url(#belowZero)"/>' : "");
+      if (one) { const k = done[0].k, c = done[0].c; s += '<circle cx="' + cx(k) + '" cy="' + y(c.inc) + '" r="3.5" fill="' + GREEN + '"/><circle cx="' + cx(k) + '" cy="' + y(c.cost) + '" r="3.5" fill="' + RED + '"/><circle cx="' + cx(k) + '" cy="' + y(c.net) + '" r="3.5" fill="' + (c.net < 0 ? RED : GREEN) + '"/>'; }
+    }
+    // today, as a thin dotted line down the plot
+    const tk = at(today);
+    if (tk >= 0) { const c = cols[tk], frac = (day(today) - day(c.from)) / (day(c.to) - day(c.from) + 864e5), tx = L + (tk + frac) * slot; s += '<line x1="' + tx + '" x2="' + tx + '" y1="' + head + '" y2="' + B + '" stroke="currentColor" stroke-dasharray="2 3"/>'; }
+    // hover columns over the plot
+    const hov = [];
+    cols.forEach((c, k) => {
+      if (!c.started) return;
+      hov.push(hoverCol({ x: L + k * slot, w: slot, gx: cx(k), T, B, W: R, attrs: ' data-k="' + k + '"',
+        title: monthly ? MONTHS_LONG[c.mi] + " " + c.from.slice(0, 4) : bk.unit === "day" ? longDate(c.from) : longDate(c.from) + " – " + longDate(c.to),
+        pts: [{ x: cx(k), y: y(c.inc), c: GREEN, label: words().rev, t: money(c.inc) }, { x: cx(k), y: y(c.cost), c: RED, label: words().cost, t: money(c.cost) },
+          { x: cx(k), y: y(c.net), c: c.net < 0 ? RED : GREEN, label: dash.scope === "personal" ? "saved" : "profit", t: money(c.net) }] }));
+    });
+    s += hov.join("");
+    // the chips; on all time, a count in each month instead of names
+    layout(L, R, slot);
+    placed.forEach(it => {
+      const cs = it.cs, k = it.k, x = it.x, w = it.w, cy = head + 4 + it.lvl * CH, late = cs.some(o => isLate(o.f, today));
+      const lines = [{ t: monthly ? MONTHS_LONG[cols[k].mi] + " " + cols[k].from.slice(0, 4) : longDate(cols[k].from), title: true }].concat(cs.flatMap(o => [
+        { t: o.f.filing + (o.f.period ? " " + o.f.period : ""), c: isLate(o.f, today) ? RTEXT : "currentColor", hollow: true },
+        { t: "due " + longDate(o.d) + (o.f.note ? ", " + o.f.note : ""), sub: true }]));
+      const tip = '<g class="hov" pointer-events="none">' + hoverBlock(x + Math.min(w, 40), cy + CH + 2, lines, R, 0, H) + "</g>";
+      s += '<g class="sub chip hit" data-row="' + cs[0].row + '"><rect x="' + x + '" y="' + cy + '" width="' + w + '" height="' + CH + '" style="fill:var(--card);stroke:' + (late ? "var(--rtext)" : "currentColor") + '"/>'
+        + '<text x="' + (many ? x + w / 2 : x + 5) + '" y="' + (cy + 14) + '"' + (many ? ' text-anchor="middle"' : "") + ' font-size="12" font-family="PT Sans, Arial, sans-serif"' + (late ? ' style="fill:var(--rtext)"' : ' fill="currentColor"') + ">" + esc(many ? cs.length : it.name) + "</text>" + tip + "</g>";
     });
     return s;
   });
-
-  host.querySelectorAll("g.sub").forEach(g => g.addEventListener("click", e => {
-    e.stopPropagation();
-    const k = g.dataset.key;
-    if (k in filedRows) return openFiling(filedRows[k]);
-    const gs = subGroups[k] || [], first = gs[0] && gs[0].items[0];
-    if (first) openFiling(first.row);
-  }));
+  const svg = host.querySelector("svg");
+  host.querySelectorAll("g.chip").forEach(g => { g.addEventListener("mouseenter", () => { if (svg.lastChild !== g) svg.append(g); }); g.addEventListener("click", e => { e.stopPropagation(); openFiling(+g.dataset.row); }); });
   // a month picks that month for the whole dashboard; a week or a day opens its transactions
   host.querySelectorAll("rect.hit").forEach(b => b.addEventListener("click", () => {
-    const d = series[+b.dataset.k];
+    const d = cols[+b.dataset.k];
     if (monthly) { dash.month = dash.month === d.m ? null : d.m; renderDashboard(); }
     else openTx({ from: d.from, to: d.to }, bk.unit === "day" ? longDate(d.from) : longDate(d.from) + " – " + longDate(d.to));
   }));
@@ -768,56 +788,52 @@ function renderFlow(rg) {
   }
   let cost = 0; items.forEach(it => { it.c = it.keep ? GREEN : BAR_REDS[Math.min(cost++, 5)]; });
 
-  detail.replaceChildren(captionWithExport(title, () => downloadCSV(w.box, leadsCSV(list).concat([[]], [[title]], items.map(it => [it.label, Math.round(it.v)])))), kind === "rev" ? waterfall(items) : columns(items));
-  if (!items.length) detail.append(el("p", "empty", "nothing in this period"));
+  // a donut: for revenue, where it went (each cost, the tax, and what's left after tax in green); for costs, what they're made of
+  let slices, centre;
+  if (kind === "rev") {
+    const v = items.total.v, keepV = items.keepV, costs = items.filter(i => !i.keep);
+    slices = costs.map(i => ({ label: i.label, v: i.v, c: i.c, onclick: i.onclick }));
+    let left = keepV, cl = items[0].label;
+    (items.after || []).forEach(a => { if (!a.sub) { slices.push({ label: a.label, v: -a.v, c: "var(--hatch)" }); left += a.v; } else cl = a.label; });
+    if (left > 0.5) slices.push({ label: cl, v: left, c: GREEN, keep: true });
+    slices.forEach(x => { x.t = money(x.keep ? x.v : -x.v) + " (" + pct(x.v / (v || 1)) + ")"; });
+    centre = v > 0 ? { v: left, label: cl } : null;
+  } else {
+    const sum = items.total.v;
+    slices = items.map(i => ({ label: i.label, v: i.v, c: i.c, onclick: i.onclick, t: money(-i.v) + " (" + pct(i.v / (sum || 1)) + ")" }));
+    centre = { v: -sum, label: items.total.label };
+  }
+  detail.replaceChildren(captionWithExport(title, () => downloadCSV(w.box, leadsCSV(list).concat([[]], [[title]], slices.map(x => [x.label, Math.round(x.keep ? x.v : -x.v)])))));
+  const box = el("div", "chart donut"); detail.append(box);
+  if (!slices.some(x => x.v > 0.5)) { detail.append(el("p", "empty", "nothing in this period")); return; }
+  donut(box, slices.filter(x => x.v > 0.5), centre);
 }
 
-// one column per figure: the bar on top, then its share, its name and its amount underneath
-function colChart(cols, lo, hi) {
-  const wrap = el("div", "wf"), span = (hi - lo) || 1;
-  cols.forEach(c => {
-    const col = el("div", "wf-col" + (c.onclick ? " link" : "")), plot = el("div", "wf-plot"), bar = el("div", "wf-bar");
-    const a = Math.min(c.from, c.to), z = Math.max(c.from, c.to);
-    const b = (a - lo) / span * 100, h = Math.max(0.5, (z - a) / span * 100);
-    bar.style.bottom = b + "%"; bar.style.height = h + "%"; bar.style.background = c.c;
-    // the share sits in the bar's top-left corner, or just under the bar when the bar is too short to hold it
-    const share = el("span", "wf-pct", c.pct);
-    // (a short bar standing on the baseline gets it just above instead, so it never runs into the labels)
-    if (h / 100 * 220 >= 28) bar.append(share);
-    else { share.classList.add("out"); if (b < 1) share.style.bottom = "calc(" + (b + h) + "% + 4px)", share.style.top = "auto"; else share.style.top = "calc(" + (100 - b) + "% + 4px)"; }
-    plot.append(bar); if (!bar.contains(share)) plot.append(share);
-    if (lo < 0) { const zero = el("div", "wf-zero"); zero.style.bottom = (-lo / span * 100) + "%"; plot.append(zero); }
-    const lab = el("div", "wf-lab"); lab.append(el("span", "nm", c.label), el("span", c.cls, c.value));
-    lab.title = c.label + "  " + c.value + " (" + c.pct + ")";
-    col.append(plot, lab);
-    if (c.onclick) col.addEventListener("click", c.onclick);
-    wrap.append(col);
+// a ring of slices, no key: hovering one names it, its amount and its share, the way google sheets does
+function donut(host, slices, centre) {
+  const sum = slices.reduce((a, x) => a + x.v, 0) || 1, H = 260;
+  svgBox(host, H, W => {
+    const cx = W / 2, cy = H / 2, r = 118, ri = 74;
+    const pt = (a, rad) => [cx + rad * Math.sin(a), cy - rad * Math.cos(a)];
+    let a0 = 0, s = "", tips = "";
+    slices.forEach((x, i) => {
+      const a1 = a0 + x.v / sum * Math.PI * 2, big = a1 - a0 > Math.PI ? 1 : 0, gap = slices.length > 1 ? 0.004 : 0;
+      const [x0, y0] = pt(a0 + gap, r), [x1, y1] = pt(a1 - gap, r), [x2, y2] = pt(a1 - gap, ri), [x3, y3] = pt(a0 + gap, ri);
+      const d = slices.length === 1
+        ? "M" + (cx - r) + "," + cy + "a" + r + "," + r + " 0 1,0 " + 2 * r + ",0a" + r + "," + r + " 0 1,0 " + -2 * r + ",0M" + (cx - ri) + "," + cy + "a" + ri + "," + ri + " 0 1,1 " + 2 * ri + ",0a" + ri + "," + ri + " 0 1,1 " + -2 * ri + ",0Z"
+        : "M" + x0 + "," + y0 + "A" + r + "," + r + " 0 " + big + ",1 " + x1 + "," + y1 + "L" + x2 + "," + y2 + "A" + ri + "," + ri + " 0 " + big + ",0 " + x3 + "," + y3 + "Z";
+      const [mx, my] = pt((a0 + a1) / 2, (r + ri) / 2);
+      s += '<g class="sub slice' + (x.onclick ? " hit" : "") + '" data-i="' + i + '"><path d="' + d + '" fill-rule="evenodd" style="fill:' + x.c + '"/>'
+        + '<g class="hov" pointer-events="none">' + hoverBlock(mx, my - 12, [{ t: x.label, c: x.c }, { t: x.t, sub: true }], W, 0, H) + "</g></g>";
+      a0 = a1;
+    });
+    if (centre) s += '<text x="' + cx + '" y="' + (cy + 2) + '" text-anchor="middle" font-size="18" font-family="PT Sans, Arial, sans-serif" style="fill:' + (centre.v < 0 ? RTEXT : GTEXT) + '">' + esc(money(centre.v)) + '</text>'
+      + '<text x="' + cx + '" y="' + (cy + 22) + '" text-anchor="middle" ' + F + ' font-style="italic">' + esc(centre.label) + "</text>";
+    return s;
   });
-  return wrap;
-}
-
-// revenue at the start, each cost stepping down from it, and what is left at the end
-function waterfall(items) {
-  if (!items.total || !items.total.v) return el("div");
-  const v = items.total.v, keep = items.find(i => i.keep), steps = items.filter(i => !i.keep), k = items.keepV;
-  const cols = [{ label: items.total.label, from: 0, to: v, c: GREEN, pct: "100%", value: money(v), cls: "g" }];
-  let top = v;
-  steps.forEach(s => { cols.push({ label: s.label, from: top, to: top - s.v, c: s.c, pct: pct(s.v / v), value: money(-s.v), cls: "r", onclick: s.onclick }); top -= s.v; });
-  cols.push({ label: keep.label, from: 0, to: k, c: k < 0 ? RED : GREEN, pct: pct(k / v), value: money(k), cls: k < 0 ? "r" : "g" });
-  // money that carries on past profit: steps up (light green) or down (light red), and subtotals standing on the baseline
-  let lo = Math.min(0, top, k), hi = v; top = k;
-  (items.after || []).forEach(a => {
-    if (a.sub) cols.push({ label: a.label, from: 0, to: top, c: top < 0 ? RED : GREEN, pct: pct(top / v), value: money(top), cls: top < 0 ? "r" : "g" });
-    else { cols.push({ label: a.label, from: top, to: top + a.v, c: a.v < 0 ? "#FFB4A0" : "#9BE49C", pct: pct(Math.abs(a.v) / v), value: (a.v < 0 ? "" : "+") + money(a.v), cls: a.v < 0 ? "r" : "g", onclick: a.onclick }); top += a.v; }
-    lo = Math.min(lo, top); hi = Math.max(hi, top);
-  });
-  return colChart(cols, lo, hi);
-}
-
-// a cost category broken down: one column each, tallest first
-function columns(items) {
-  const sum = items.total ? items.total.v : 0, hi = Math.max(0, ...items.map(i => i.v));
-  return colChart(items.map(i => ({ label: i.label, from: 0, to: i.v, c: i.c, pct: pct(i.v / (sum || 1)), value: money(-i.v), cls: "r", onclick: i.onclick })), 0, hi);
+  // the hover blocks sit on top of every slice
+  const svg = host.querySelector("svg"); host.querySelectorAll("g.slice").forEach(g => g.addEventListener("mouseenter", () => { if (svg.lastChild !== g) svg.append(g); }));
+  host.querySelectorAll("g.slice.hit").forEach(g => g.addEventListener("click", () => slices[+g.dataset.i].onclick()));
 }
 
 function renderCash(rg) {
@@ -828,36 +844,30 @@ function renderCash(rg) {
   list.replaceChildren(lead("accounts", money(balance(to)), { cls: "hd", italic: true, sel: !dash.acct, onclick: () => { dash.acct = null; renderCash(rg); } }));
   items.forEach(i => list.append(lead(i.label, money(i.v), { sel: i.label === dash.acct, onclick: () => { dash.acct = i.label; renderCash(rg); } })));
 
-  // month-end cash for the year, the same months a year earlier, and (for the companies as a whole) cash after the tax owed
+  // month-end cash for the year, one line
   const start = new Date(dash.fy + "T00:00:00"), today = iso(new Date()), pts = [], fn = dash.acct ? r => r.account === dash.acct : null;
-  const firstDate = (data.rows.find(r => !r.synthetic && scopeEntities().includes(r.entity)) || {}).date || "9999";
-  const showTax = !dash.acct && dash.scope !== "personal";
   for (let k = 0; k < 12; k++) {
-    const m = monthEnd(addMonths(start, k)), d = iso(m), dd = d < today ? d : today, lyD = iso(monthEnd(addMonths(m, -12)));
+    const m = monthEnd(addMonths(start, k)), d = iso(m), dd = d < today ? d : today;
     const v = d.slice(0, 7) <= today.slice(0, 7) ? balance(dd, fn) : null;
-    pts.push({ label: MONTHS[m.getMonth()], y: m.getFullYear(), v, ly: lyD >= firstDate ? balance(lyD, fn) : null, free: v != null && showTax ? v - taxOwed(dd) : null });
+    pts.push({ label: MONTHS[m.getMonth()], y: m.getFullYear(), v });
   }
   const box = el("div", "chart");
   detail.replaceChildren(captionWithExport(dash.acct || "accounts", () => downloadCSV("cash", leadsCSV(list))), box);
-  const vals = pts.flatMap(p => [p.v, p.ly, p.free]).filter(v => v != null);
+  const vals = pts.map(p => p.v).filter(v => v != null);
   if (!vals.length) return;
   // a scale that fits the values instead of starting at zero, so real movement shows
-  const minV = Math.min(...vals), maxV = Math.max(...vals), span = Math.max(1, maxV - minV), step = niceMax(span / 4);
+  const minV = Math.min(...vals), maxV = Math.max(...vals), span = Math.max(10, maxV - minV, Math.abs(maxV) * 0.1), step = niceMax(span / 4);
   const lo = Math.floor((minV - span * 0.08) / step) * step, hi = Math.ceil((maxV + span * 0.08) / step) * step;
   svgBox(box, 200, W => {
     const L = 44, T = 10, B = 170, y = v => B - (v - lo) / (hi - lo) * (B - T), slot = (W - L - 20) / 11; let s = "";
     for (let v = lo; v <= hi + 0.5; v += step) s += '<line x1="' + L + '" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" style="stroke:' + (v === lo ? "currentColor" : "var(--grid)") + '"/><text x="0" y="' + (y(v) + 5) + '" ' + F + ">" + short(v) + "</text>";
     const path = key => pts.map((p, k) => p[key] == null ? null : (L + k * slot).toFixed(1) + "," + y(p[key]).toFixed(1)).filter(Boolean);
-    const ly = path("ly"), free = path("free"), now = path("v"), hov = [];
-    if (ly.length > 1) s += '<polyline points="' + ly.join(" ") + '" fill="none" style="stroke:var(--hatch)" stroke-width="2" stroke-dasharray="5 4"/>';
-    if (free.length > 1) s += '<polyline points="' + free.join(" ") + '" fill="none" stroke="' + GREEN + '" stroke-width="1.5" stroke-dasharray="2 3"/>';
+    const now = path("v"), hov = [];
     if (now.length > 1) s += '<polyline points="' + now.join(" ") + '" fill="none" stroke="' + GREEN + '" stroke-width="2"/>';
     pts.forEach((p, k) => {
-      s += '<text x="' + (L + k * slot) + '" y="' + (B + 22) + '" ' + F + ' text-anchor="middle">' + p.label + "</text>";
+      s += '<text x="' + (L + k * slot) + '" y="' + (B + 22) + '" ' + F + ' text-anchor="middle">' + (slot < 30 ? p.label[0] : p.label) + "</text>";
       hov.push(hoverCol({ x: L + k * slot - slot / 2, w: slot, gx: L + k * slot, T, B, W, hitCls: "spot", title: p.label + " " + p.y, pts: [
-        p.v != null ? { x: L + k * slot, y: y(p.v), c: GREEN, label: "cash", t: money(p.v) } : null,
-        p.free != null ? { x: L + k * slot, y: y(p.free), c: GREEN, hollow: true, label: "after tax owed", t: money(p.free) } : null,
-        p.ly != null ? { x: L + k * slot, y: y(p.ly), c: "var(--hatch)", label: "a year earlier", t: money(p.ly) } : null] }));
+        p.v != null ? { x: L + k * slot, y: y(p.v), c: GREEN, label: "cash", t: money(p.v) } : null] }));
     });
     return s + hov.join("");
   });
@@ -881,24 +891,6 @@ function filingDatesOld() {
     break;
   }
   return out;
-}
-function filingEstimate(f) {
-  if (!/corporation tax/.test(f.name) || f.who !== "ie ltd") return null;
-  const y = +((/(\d{4})/.exec(f.name) || [])[1]); if (!y) return null;
-  const yr = /preliminary/.test(f.name) ? y - 1 : y;
-  return taxFor("ie ltd", { from: yr + "-01-01", to: yr + "-12-31", months: 12 });
-}
-function upcomingFilings() {
-  const today = iso(new Date()), ents = scopeEntities(), groups = new Map();
-  filingDates().filter(f => ents.includes(f.who) && (f.target || f.deadline) && f.status !== "done" && !(f.deadline && f.deadline < today)).forEach(f => {
-    let when = f.target || f.deadline; const late = when < today; if (late) when = today;
-    const g = groups.get(when) || { when, items: [], late: false }; g.items.push(f); g.late = g.late || late; groups.set(when, g);
-  });
-  const gs = [...groups.values()].sort((a, b) => a.when < b.when ? -1 : 1);
-  gs.forEach(g => {
-    g.soon = g.late || (new Date(g.when + "T00:00:00") - new Date(today + "T00:00:00")) / 864e5 <= 30;
-  });
-  return gs;
 }
 // filings: only what still needs doing for this period or earlier. business and personal under italic headings,
 // the current mode's first. statuses are changed in the sheet, not here. clicking a filing opens its row on the filings tab
@@ -1444,7 +1436,9 @@ function renderFilingList() {
 // a filing clicked anywhere scrolls to it in the filings section
 function openFiling(row) {
   if (view !== "dashboard") showView("dashboard");
-  const r = $('#filingList [data-row="' + row + '"]'); if (!r) return;
+  let r = $('#filingList [data-row="' + row + '"]');
+  if (!r && !filShowDone) { filShowDone = true; renderFilingList(); r = $('#filingList [data-row="' + row + '"]'); }
+  if (!r) return;
   r.scrollIntoView({ block: "center" }); r.classList.add("flash"); setTimeout(() => r.classList.remove("flash"), 2500);
 }
 function renderMore() { renderBudget(); renderFilingList(); }
@@ -1649,8 +1643,8 @@ function showView(name) {
   $("#viewDashboard").hidden = name !== "dashboard";
   $("#viewSheet").hidden = name === "dashboard";
   if (name === "dashboard") renderDashboard(); else renderSheet(tabByName(name));
-  // filings, needs attention and tasks show beside every page
-  if (name !== "dashboard") { renderFilings(); renderTasks(); renderAttention(); fitTasks(); }
+  // filings, needs attention and tasks sit beside the dashboard only; the transactions table takes the full width
+  $("main").classList.toggle("solo", name !== "dashboard");
   fitSheet();
 }
 function usedSize(tab) {

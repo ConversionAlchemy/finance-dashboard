@@ -123,7 +123,7 @@ main[hidden] { display: none; }
 .fig { display: grid; align-content: start; gap: 3px; padding: 0 14px; border-left: 1px solid var(--hair); }
 .fig:first-child { padding-left: 0; border-left: 0; }
 
-.split { display: grid; grid-template-columns: minmax(300px, 36fr) minmax(0, 64fr); gap: 48px; }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; }
 .mt { display: block; margin-bottom: 6px; }
 .lead { display: flex; gap: 8px; align-items: baseline; white-space: nowrap; }
 .lead > span:first-child { overflow: hidden; text-overflow: ellipsis; }
@@ -263,11 +263,12 @@ input.inline { box-sizing: border-box; width: 110px; height: 26px; padding: 0 6p
 .figs .g, #summary .g { color: var(--gtext); }
 #filingsBox .chip { margin: 4px 0 6px; height: 28px; background: var(--soft); }
 #filingsBox .chip::after { content: "  \00d7"; }
-.chart g.sub { cursor: pointer; }
-/* a filing's ball turns solid off-black on hover, its number in the card colour */
-.chart g.sub:hover > circle { fill: var(--ink) !important; stroke: var(--ink) !important; }
-.chart g.sub:hover > text { fill: var(--card) !important; }
-.chart g.sub:hover > line { stroke: var(--ink) !important; }
+.chart g.sub.hit { cursor: pointer; }
+/* timeline: a filing chip greys on hover, like every other link */
+.chart g.chip:hover > text { fill: var(--grey) !important; }
+.chart g.chip:hover > rect { stroke: var(--grey) !important; }
+/* donut: the slice under the pointer lightens a little */
+.chart g.slice:hover > path { opacity: 0.8; }
 .filing-group { margin-top: 15px; }
 .filing-group:first-of-type { margin-top: 0; }
 .lead.filing { padding: 2px 0; }
@@ -369,18 +370,6 @@ html.fit .sheet-scroll { max-height: none !important; }
 .sheet-head .chips { display: flex; flex-wrap: wrap; gap: 8px; flex-basis: 100%; }
 
 /* waterfall and column charts */
-.wf { display: flex; }
-.wf-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
-.wf-plot { position: relative; height: 220px; border-bottom: 1px solid var(--ink); }
-.wf-bar { position: absolute; left: 8px; right: 8px; }
-.wf-pct { position: absolute; top: 4px; left: 6px; white-space: nowrap; }
-.wf-pct.out { left: 8px; }
-.wf-zero { position: absolute; left: 0; right: 0; border-top: 1px dotted var(--dots); }
-.wf-lab { display: flex; flex-direction: column; align-items: flex-start; padding: 8px 8px 0; text-align: left; }
-.wf-lab span { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wf-lab span.nm { white-space: normal; overflow-wrap: normal; }
-.wf-col.link { cursor: pointer; }
-.wf-col.link:hover .wf-lab, .wf-col.link:hover .wf-lab *, .wf-col.link:hover .wf-pct { color: var(--grey); }
 .view > .sec:last-child { margin-bottom: 0; }
 
 /* one size for every control: 150 wide, 40 tall; text that doesn't fit ends in "…"
@@ -493,3 +482,16 @@ dialog.paste .r { margin: 8px 0 0; }
 .lgrid.cols .lead.done .v.tick { border-color: var(--ink); }
 .lgrid.cols .lead.done .v.tick.on { background-color: var(--ink); }
 #filingList > .corner .box.icon[aria-pressed="true"] { background: var(--card); outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* the page sits in a centred frame: empty margins either side on wide screens, the same frame on every tab */
+:root { --maxw: 1600px; --gut: max(24px, calc((100vw - var(--maxw)) / 2)); }
+.top { padding-left: var(--gut); padding-right: var(--gut); }
+main { padding-left: var(--gut); padding-right: var(--gut); }
+/* the side column (filings, needs attention, tasks) only beside the dashboard */
+main.solo { grid-template-columns: minmax(0, 1fr); }
+main.solo .side-col { display: none; }
+@media (max-width: 700px) { :root { --gut: 12px; } }
+/* on a laptop the side column moves under the page, three boxes across, so the charts keep their width */
+@media (max-width: 1500px) and (min-width: 1101px) { main { grid-template-columns: minmax(0, 1fr); } .side-col { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; } }
+/* side box headings all one height, with or without an export button beside them */
+.side .hd, .side > .hd { display: flex; align-items: center; justify-content: space-between; min-height: 28px; }
