@@ -369,8 +369,8 @@ function groupBy(rows, key) {
 }
 const catName = c => c === "check" ? "to categorise" : c === "income" && dash.scope === "personal" ? "other income" : c;
 const words = () => dash.scope === "personal"
-  ? { rev: "income", cost: "spending", allRev: "all income", allCost: "all spending", keep: "saved / invested", stream: "source", box: "income and spending", pbt: "saved / invested", of: "of income" }
-  : { rev: "revenue", cost: "costs", allRev: "all revenue", allCost: "all costs", keep: "profit", stream: "stream", box: "revenue and costs", pbt: "profit before tax", of: "of revenue" };
+  ? { rev: "income", cost: "spending", keep: "saved / invested", stream: "source", box: "income and spending", pbt: "saved / invested", of: "of income" }
+  : { rev: "revenue", cost: "costs", keep: "profit", stream: "stream", box: "revenue and costs", pbt: "profit before tax", of: "of revenue" };
 const streamOf = r => r.stream || (dash.scope === "personal" ? catName(r.category) : "other");
 
 /* ---------- svg ---------- */
@@ -692,11 +692,10 @@ function renderFlow(rg) {
   const pctOf = (m, v) => v > 0 ? " (" + pct(m / v) + ")" : "";
   const w = words(), personal = dash.scope === "personal";
   $("#flowTitle").textContent = w.box;
-  list.replaceChildren(el("i", "mt", w.rev));
-  list.append(lead(w.allRev, money(allInc) + pctOf(profit, allInc), { sel: isSel("rev", null), onclick: () => go("rev", null) }));
+  // each group's heading carries its total and selects the whole group
+  list.replaceChildren(lead(w.rev, money(allInc) + pctOf(profit, allInc), { cls: "hd", italic: true, sel: isSel("rev", null), onclick: () => go("rev", null) }));
   streams.forEach(s => list.append(lead(s.label, money(s.v) + (personal ? "" : pctOf(s.margin, s.v)), { sel: isSel("rev", s.label), onclick: () => go("rev", s.label) })));
-  list.append(el("i", "mt group", w.cost));
-  list.append(lead(w.allCost, money(-total(costRows)), { sel: isSel("cost", null), onclick: () => go("cost", null) }));
+  list.append(lead(w.cost, money(-total(costRows)), { cls: "hd group", italic: true, sel: isSel("cost", null), onclick: () => go("cost", null) }));
   cats.slice(0, 6).forEach(c => list.append(lead(catName(c.label), money(-c.v), { sel: isSel("cost", c.label), onclick: () => go("cost", c.label) })));
   const rest = cats.slice(6); if (rest.length) list.append(lead("everything else", money(-rest.reduce((a, c) => a + c.v, 0)), { onclick: () => openTx({ group: "cost", notIn: cats.slice(0, 6).map(c => c.label) }, "everything else") }));
 
@@ -710,7 +709,7 @@ function renderFlow(rg) {
     let steps = s ? s.steps : groupBy(outRows, "category").filter(c => c.v < -0.5).sort((a, b) => a.v - b.v);
     const long = !s && !personal, nTop = 5;
     if (!s) { const top = steps.slice(0, nTop), r = steps.slice(nTop).reduce((a, c) => a + c.v, 0); steps = r < -0.5 ? top.concat([{ label: "everything else", v: r }]) : top; }
-    title = s ? s.label : w.allRev;
+    title = s ? s.label : w.rev;
     items = [{ label: s ? (personal ? w.keep : "margin") : w.keep, v: Math.max(0, keepV), keep: true, value: [el("span", keepV < 0 ? "r" : "g", money(keepV)), document.createTextNode(pctOf(keepV, v))] }]
       .concat(steps.map(st => ({ label: catName(st.label), v: -st.v, value: [el("span", "r", money(st.v)), document.createTextNode(pctOf(-st.v, v))], onclick: catClick(st.label) })));
     items.total = { label: w.rev, v }; items.keepV = keepV;
@@ -730,10 +729,10 @@ function renderFlow(rg) {
     const shown = parts.slice(0, 6), others = parts.slice(6);
     if (others.length) shown.push({ label: others.length + " others", v: others.reduce((a, p) => a + p.v, 0), others: true });
     const sum = -shown.reduce((a, p) => a + p.v, 0);
-    title = f.key ? catName(f.key) : w.allCost;
+    title = f.key ? catName(f.key) : w.cost;
     items = shown.map(it => ({ label: f.key ? it.label : catName(it.label), v: -it.v, value: money(-it.v) + pctOf(-it.v, sum),
       onclick: it.others ? () => openTx(f.key ? { category: f.key, notIn: null } : { group: "cost" }, f.key ? catName(f.key) : "all costs") : f.key ? () => openTx({ category: f.key, supplier: it.label }, it.label) : () => go("cost", it.label) }));
-    items.total = { label: f.key ? catName(f.key) : w.allCost, v: sum };
+    items.total = { label: f.key ? catName(f.key) : w.cost, v: sum };
   }
   let cost = 0; items.forEach(it => { it.c = it.keep ? GREEN : BAR_REDS[Math.min(cost++, 5)]; });
 
@@ -794,8 +793,7 @@ function renderCash(rg) {
   const accounts = [...new Set(data.rows.filter(r => scopeEntities().includes(r.entity)).map(r => r.account))];
   const items = accounts.map(a => ({ label: a, v: balance(to, r => r.account === a) })).filter(i => Math.abs(i.v) >= 0.5).sort((a, b) => b.v - a.v);
   if (dash.acct && !items.find(i => i.label === dash.acct)) dash.acct = null;
-  list.replaceChildren(el("i", "mt", "account"));
-  list.append(lead("all accounts", money(balance(to)), { sel: !dash.acct, onclick: () => { dash.acct = null; renderCash(rg); } }));
+  list.replaceChildren(lead("accounts", money(balance(to)), { cls: "hd", italic: true, sel: !dash.acct, onclick: () => { dash.acct = null; renderCash(rg); } }));
   items.forEach(i => list.append(lead(i.label, money(i.v), { sel: i.label === dash.acct, onclick: () => { dash.acct = i.label; renderCash(rg); } })));
 
   // month-end cash for the year, the same months a year earlier, and (for the companies as a whole) cash after the tax owed
@@ -808,7 +806,7 @@ function renderCash(rg) {
     pts.push({ label: MONTHS[m.getMonth()], y: m.getFullYear(), v, ly: lyD >= firstDate ? balance(lyD, fn) : null, free: v != null && showTax ? v - taxOwed(dd) : null });
   }
   const box = el("div", "chart");
-  detail.replaceChildren(el("i", "mt", dash.acct || "all accounts"), box);
+  detail.replaceChildren(el("i", "mt", dash.acct || "accounts"), box);
   const vals = pts.flatMap(p => [p.v, p.ly, p.free]).filter(v => v != null);
   if (!vals.length) return;
   // a scale that fits the values instead of starting at zero, so real movement shows
@@ -968,21 +966,22 @@ async function saveBudget(lines) {
    o.state keeps the selection between renders, o.changed() runs after any edit, o.render() redraws. */
 function sheetGrid(o) {
   const st = o.state, tb = el("table", "plan grid-sheet " + (o.cls || "")); tb.tabIndex = 0;
-  const editCols = o.cols.map((c, k) => c.edit ? k : -1).filter(k => k >= 0), nav = [];
+  const editCols = o.cols.map((c, k) => c.edit || c.toggle ? k : -1).filter(k => k >= 0), nav = [];
   const head = el("tr"); o.cols.forEach(c => { const th = el("th", c.num ? "num" : null, c.label); if (c.title) th.title = c.title; head.append(th); });
   tb.append(el("thead")); tb.tHead.append(head);
   const body = el("tbody");
   // a cell's value can be text, or { t, cls } for coloured text
-  const cell = (c, v, extra) => { const td = el("td", [c && c.num ? "num" : "", extra || "", v && v.cls ? v.cls : ""].filter(Boolean).join(" ") || null); td.append(el("span", null, v && v.t != null ? v.t : v == null ? "" : String(v))); return td; };
+  const cell = (c, v, extra) => { const t = v && v.t != null ? v.t : v == null ? "" : String(v), td = el("td", [c && c.num ? "num" : "", extra || "", v && v.cls ? v.cls : ""].filter(Boolean).join(" ") || null); td.append(el("span", null, t)); if (t.length > 18) td.title = t; return td; };
   o.groups.forEach(g => {
-    const hr = el("tr", "head line"); hr.append(cell(null, g.label));
-    o.cols.slice(1).forEach((c, k) => hr.append(cell(c, (g.head || [])[k])));
+    // the group's name sits over the first column you type in (a tick box column before it is spanned)
+    const lc0 = Math.max(0, o.cols.findIndex(x => x.edit)), hr = el("tr", "head line"), lab = cell(null, g.label); lab.colSpan = lc0 + 1; hr.append(lab);
+    o.cols.slice(lc0 + 1).forEach((c, k) => hr.append(cell(c, (g.head || [])[k])));
     body.append(hr);
     g.rows.forEach(r => {
       const tr = el("tr", "line cells" + (o.rowCls && o.rowCls(r) ? " " + o.rowCls(r) : "")); tr.dataset.r = nav.length; nav.push({ row: r, g });
       if (o.rowId) tr.dataset.row = o.rowId(r);
       if (o.rowTitle && o.rowTitle(r)) tr.title = o.rowTitle(r);
-      o.cols.forEach((c, k) => { const td = cell(c, c.show(r), c.edit ? "cell" : ""); if (c.edit) td.dataset.c = k; tr.append(td); });
+      o.cols.forEach((c, k) => { const td = cell(c, c.show(r), c.edit || c.toggle ? "cell" : ""); if (c.edit || c.toggle) td.dataset.c = k; tr.append(td); });
       body.append(tr);
     });
     if (g.add) {
@@ -1004,13 +1003,15 @@ function sheetGrid(o) {
   const commit = (n, c, v) => {
     const col = o.cols[c]; v = String(v).trim();
     if (n.add) return v ? n.add.add(c, v) : false;
-    if (c === editCols[0] && !v) { o.remove(n.row); return true; }
+    if (c === o.cols.findIndex(x => x.edit) && !v) { o.remove(n.row); return true; }
     if (col.raw(n.row) === v) return false;
     col.set(n.row, v); return true;
   };
   const redraw = () => { o.render(); const t = o.host.querySelector("table"); if (t) t.focus(); };
+  const flip = () => { const n = nav[st.r], col = o.cols[st.c]; if (!n || n.add || !col.toggle) return false; col.toggle(n.row); o.changed(); redraw(); return true; };
   const edit = initial => {
-    const td = cellAt(st.r, st.c), n = nav[st.r]; if (!td || !n) return;
+    if (o.cols[st.c].toggle) { flip(); return; }
+    const td = cellAt(st.r, st.c), n = nav[st.r]; if (!td || !n || (n.add && !o.cols[st.c].edit)) return;
     st.editing = true; const typed = initial != null, col = o.cols[st.c];
     const input = el("input", "cell-in" + (col.num ? " num" : "")); input.value = typed ? initial : n.add ? "" : col.raw(n.row);
     if (col.num) input.inputMode = "decimal";
@@ -1032,16 +1033,16 @@ function sheetGrid(o) {
     };
     input.onblur = () => finish(true);
   };
-  tb.onmousedown = e => { const td = e.target.closest("td.cell"); if (!td || e.target.tagName === "INPUT") return; e.preventDefault(); tb.focus(); st.r = +td.parentNode.dataset.r; st.c = +td.dataset.c; paint(); };
+  tb.onmousedown = e => { const td = e.target.closest("td.cell"); if (!td || e.target.tagName === "INPUT") return; e.preventDefault(); tb.focus(); st.r = +td.parentNode.dataset.r; st.c = +td.dataset.c; paint(); if (o.cols[st.c].toggle) flip(); };
   tb.ondblclick = e => { if (e.target.closest("td.cell") && e.target.tagName !== "INPUT") edit(); };
   tb.onkeydown = e => {
     if (st.editing || st.r < 0) return;
     const k = e.key;
     if (k === "ArrowDown") step(1, 0); else if (k === "ArrowUp") step(-1, 0);
     else if (k === "ArrowRight" || (k === "Tab" && !e.shiftKey)) step(0, 1); else if (k === "ArrowLeft" || (k === "Tab" && e.shiftKey)) step(0, -1);
-    else if (k === "Enter" || k === "F2") edit();
-    else if (k === "Delete" || k === "Backspace") { const n = nav[st.r], col = o.cols[st.c]; if (n && !n.add && commit(n, st.c, col.cleared != null ? col.cleared : "")) { o.changed(); redraw(); } }
-    else if (k.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) edit(k);
+    else if (k === "Enter" || k === "F2" || (k === " " && o.cols[st.c].toggle)) edit();
+    else if (k === "Delete" || k === "Backspace") { const n = nav[st.r], col = o.cols[st.c]; if (n && !n.add && col.edit && commit(n, st.c, col.cleared != null ? col.cleared : "")) { o.changed(); redraw(); } }
+    else if (k.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) { if (o.cols[st.c].edit) edit(k); }
     else return;
     e.preventDefault(); e.stopPropagation();
   };
@@ -1090,9 +1091,11 @@ function renderBudget() {
     ] });
 }
 
-/* ---------- filings: one list, grouped by the job each filing belongs to, kept on a "filing log" tab ----------
-   columns on the tab: group, filing, period, submit by, due, status, submitted, notes */
-const FILING_GROUPS = ["closing the uk company", "irish company", "uk company", "self assessment"];
+/* ---------- filings: grouped by the job each one belongs to, kept on a "filing log" tab ----------
+   tab columns: group, filing, period, due, done, submitted, note, status
+   a filing shows its due date until it's done, then the date it went in. its colour says where it stands:
+   red when it's to do or overdue, grey and struck through when it's done. */
+const FILING_GROUPS = ["closing the uk company", "uk company", "irish company", "self assessment"];
 const groupWho = g => g === "irish company" ? "ie ltd" : g === "self assessment" ? "personal" : "uk ltd";
 const MON3 = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
 // a date typed any of the usual ways: 2027-01-08, 8 jan 2027, jan 2027 (the 1st), with words like "due" or "paid" around it
@@ -1101,8 +1104,25 @@ function dateOf(t) {
   m = /(?:(\d{1,2}) )?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* (\d{4})/.exec(t);
   return m ? m[3] + "-" + String(MON3[m[2]]).padStart(2, "0") + "-" + String(m[1] || 1).padStart(2, "0") : "";
 }
+// one way of naming things: the filing and its form in brackets, the period on its own, amounts and remarks in the note
+const FILING_NAMES = [
+  [/^first annual return \(b1\)|^annual return \(b1\)/, "annual return (b1)"], [/^annual return and accounts \(b1c\)/, "annual return (b1c)"],
+  [/^annual return\b/, "annual return (b1)"], [/^corporation tax preliminary|^preliminary tax/, "preliminary tax (ct1)"],
+  [/^irish income tax \(form 11\)|^income tax \(form 11\)/, "income tax (form 11)"], [/^uk self assessment payments?/, "self assessment payment (uk)"],
+  [/^uk self assessment|^self assessment(?! payment)/, "self assessment (uk)"], [/^vat returns?/, "vat return"], [/^vat repayments?/, "vat repayment"]
+];
+function tidyFiling(f) {
+  let name = lc(f.filing), period = lc(f.period), notes = [];
+  const amt = /\(?(about )?£[\d,.]+\)?/.exec(name); if (amt) { notes.push(amt[0].replace(/[()]/g, "")); name = name.replace(amt[0], ""); }
+  const yr = /\s(\d{4}(?:[–-]\d{2})?)$/.exec(name.trim()); if (yr && !period) { period = yr[1]; name = name.trim().slice(0, -yr[0].length + 1); }
+  name = name.replace(/\s+/g, " ").trim();
+  for (const [re, to] of FILING_NAMES) if (re.test(name)) { name = to; break; }
+  period = period.replace(/^to (\d{1,2} )?([a-z]{3}) (\d{4})$/, "to $2 $3").replace(/-/g, "–");
+  if (f.note) notes.push(f.note);
+  return Object.assign(f, { filing: name, period, note: notes.filter(Boolean).join(", ") });
+}
 let filLog = null, filSaveTimer = null;
-const filSel = { r: -1, c: 0 };
+const filSel = {};
 // every row of the old status tables on the filings tab
 function pastFilingsAll() {
   const t = data.filings; if (!t) return [];
@@ -1115,6 +1135,19 @@ function pastFilingsAll() {
   }
   return out;
 }
+// turn an old row (free-text "submitted", a status word) into the tidy shape
+function fromOld(group, name, period, text, status, due, notes) {
+  text = lc(text); status = lc(status);
+  const done = /^(done|filed|paid)/.test(status), when = dateOf(text), note = [];
+  let submitted = "";
+  if (/^due\b/.test(text)) due = due || when;
+  else if (/^(from|after)\b/.test(text)) note.push("can file " + text);
+  else if (/^rejected/.test(text)) note.push(text);
+  else if (when) { if (done || status === "confirm") submitted = when; else note.push(text); if (/^paid/.test(text)) note.push("paid"); }
+  if (status === "confirm") note.push("to confirm");
+  if (notes) note.push(notes);
+  return tidyFiling({ group, filing: name, period, due: due || "", done, submitted, note: note.join(", "), status: done ? "done" : status === "to do" ? "to do" : status === "confirm" ? "to confirm" : "later" });
+}
 // the first time: everything from the old status and dates tables, matched up where they describe the same filing
 function seedFilings() {
   const out = [], dates = filingDatesOld(), used = new Set();
@@ -1123,38 +1156,40 @@ function seedFilings() {
   pastFilingsAll().forEach(p => {
     const full = (p.name + " " + p.period).trim(), d = dates.findIndex((x, k) => !used.has(k) && x.who === p.who && (x.name.includes(full) || full.includes(x.name)));
     const x = d >= 0 ? dates[d] : null; if (x) used.add(d);
-    out.push({ group: groupFor(p.who, p.name, p.period), filing: p.name, period: p.period, target: x ? x.target : "", due: x ? x.deadline : dateOf(/due/.test(p.text) ? p.text : ""), status: p.status || (x ? x.status : ""), submitted: /due/.test(p.text) ? "" : p.text, notes: x ? x.notes : "" });
+    out.push(fromOld(groupFor(p.who, p.name, p.period), p.name, p.period, p.text, p.status, x ? x.deadline || x.target : "", x ? x.notes : ""));
   });
-  dates.forEach((x, k) => { if (!used.has(k)) out.push({ group: groupFor(x.who, x.name, ""), filing: x.name, period: "", target: x.target, due: x.deadline, status: x.status, submitted: "", notes: x.notes }); });
+  dates.forEach((x, k) => { if (!used.has(k)) out.push(fromOld(groupFor(x.who, x.name, ""), x.name, "", "", x.status === "done" ? "done" : x.status, x.deadline || x.target, x.notes)); });
   return out;
 }
 function filingLog() {
   if (filLog) return filLog;
-  const t = tabByName("filing log");
-  const rows = t ? t.display.map((r, i) => ({ i, r: r || [] })).filter(x => x.i > 2 && lc(x.r[2])).map(({ r }) => ({ group: lc(r[1]), filing: lc(r[2]), period: lc(r[3]), target: dateOf(r[4]), due: dateOf(r[5]), status: lc(r[6]), submitted: lc(r[7]), notes: lc(r[8]) })) : [];
+  const t = tabByName("filing log"), d = t ? t.display : [], hdr = (d[2] || []).map(lc);
+  let rows = [];
+  if (hdr.includes("done")) rows = d.map((r, i) => ({ i, r: r || [] })).filter(x => x.i > 2 && lc(x.r[2])).map(({ r }) => ({ group: lc(r[1]), filing: lc(r[2]), period: lc(r[3]), due: dateOf(r[4]), done: /^(yes|done|true|x|✓)/.test(lc(r[5])), submitted: dateOf(r[6]), note: lc(r[7]), status: lc(r[8]) }));
+  else if (hdr.includes("submit by")) rows = d.map((r, i) => ({ i, r: r || [] })).filter(x => x.i > 2 && lc(x.r[2])).map(({ r }) => fromOld(lc(r[1]), r[2], r[3], r[7], r[6], dateOf(r[4]) || dateOf(r[5]), lc(r[8])));
   filLog = rows.length ? rows : seedFilings();
-  // sorted once when loaded (open ones first, soonest first; then filed, newest first), then left in place while you edit
-  const when = f => f.target || f.due || "";
-  const key = f => isDone(f) ? [1, -(+(dateOf(f.submitted) || "0").replace(/-/g, ""))] : [0, +((when(f) || "9999-12-31").replace(/-/g, ""))];
+  // sorted once when loaded (open ones first, soonest first; then done, newest first), then left in place while you edit
+  const key = f => f.done ? [1, -(+(f.submitted || "0").replace(/-/g, ""))] : [0, +((f.due || "9999-12-31").replace(/-/g, ""))];
   filLog.sort((a, b) => { const x = key(a), y = key(b); return x[0] - y[0] || x[1] - y[1]; });
   return filLog;
 }
-const isDone = f => /^(done|filed|paid)/.test(f.status);
-// what the rest of the dashboard reads: open filings with their dates, and filed ones with the date they went in
+const isDone = f => f.done;
+const isLate = (f, today = iso(new Date())) => !f.done && (f.status === "to do" || (f.due && f.due < today));
+// what the rest of the dashboard reads: open filings with their dates, and done ones with the date they went in
 function filingDates() {
-  return filingLog().map((f, row) => ({ row, name: f.filing + (f.period && !f.filing.includes(f.period) ? " " + f.period : ""), who: groupWho(f.group), target: f.target, deadline: f.due, notes: f.notes,
-    status: isDone(f) ? "done" : f.status === "confirm" ? "filed, to confirm" : f.status || "coming up" }));
+  return filingLog().map((f, row) => ({ row, name: f.filing + (f.period ? " " + f.period : ""), who: groupWho(f.group), target: f.due, deadline: f.due, notes: f.note,
+    status: f.done ? "done" : f.status === "to confirm" ? "filed, to confirm" : f.status === "to do" ? "to do" : f.due ? "coming up" : "later" }));
 }
 function pastFilings() {
-  return filingLog().map((f, row) => ({ f, row })).filter(({ f }) => dateOf(f.submitted) && f.status !== "later")
-    .map(({ f, row }) => ({ row, name: f.filing, period: f.period, who: groupWho(f.group), date: dateOf(f.submitted), text: f.submitted }));
+  return filingLog().map((f, row) => ({ f, row })).filter(({ f }) => f.done && f.submitted)
+    .map(({ f, row }) => ({ row, name: f.filing, period: f.period, who: groupWho(f.group), date: f.submitted, text: longDate(f.submitted) }));
 }
 async function saveFilings() {
-  const rows = filLog.map(f => [f.group, f.filing, f.period, f.target, f.due, f.status, f.submitted, f.notes]);
+  const head = ["group", "filing", "period", "due", "done", "submitted", "note", "status"];
+  const rows = filLog.map(f => [f.group, f.filing, f.period, f.due, f.done ? "yes" : "", f.submitted, f.note, f.status || ""]);
   let t = tabByName("filing log");
   const old = t ? t.display.filter((r, i) => i > 2 && (r || []).some(Boolean)).length : 0;
-  while (rows.length < old) rows.push(["", "", "", "", "", "", "", ""]);
-  const head = ["group", "filing", "period", "submit by", "due", "status", "submitted", "notes"];
+  while (rows.length < old) rows.push(head.map(() => ""));
   if (TEST) { if (!t) { t = { name: "filing log", display: [], raw: [], fmt: [] }; book.tabs.push(t); } t.display = [["", "filing log"], [], ["", ...head]].concat(rows.map(r => ["", ...r])); t.raw = t.display; return; }
   status("saving");
   try {
@@ -1167,27 +1202,31 @@ async function saveFilings() {
     await refreshTab(t); status("saved");
   } catch (e) { status(e.expired ? "signed out. sign in again to save." : e.message); }
 }
+// four small tables, two side by side: the closing work beside the uk company's history, the irish company beside self assessment
 function renderFilingList() {
-  const log = filingLog(), today = iso(new Date()), when = f => f.target || f.due || "";
-  const day = d => d ? longDate(d) : "";
-  const dated = k => ({ show: f => day(f[k]), raw: f => day(f[k]), set: (f, v) => { f[k] = dateOf(v); } });
+  const log = filingLog(), today = iso(new Date()), host = $("#filingList");
+  const save = () => { clearTimeout(filSaveTimer); filSaveTimer = setTimeout(saveFilings, 600); renderFilings(); };
   const cols = [
-    { label: "", edit: true, show: f => { const d = when(f); return { t: f.filing, cls: !isDone(f) && d && d < today ? "r" : "" }; }, raw: f => f.filing, set: (f, v) => { f.filing = lc(v); } },
+    { label: "", toggle: f => { f.done = !f.done; f.submitted = f.done ? (f.submitted || today) : ""; if (f.done) f.status = "done"; else if (f.status === "done") f.status = "to do"; },
+      show: f => ({ t: "", cls: "tick" + (f.done ? " on" : "") }) },
+    { label: "", edit: true, show: f => ({ t: f.filing, cls: f.done ? "struck" : isLate(f, today) ? "r" : "" }), raw: f => f.filing, set: (f, v) => { f.filing = lc(v); } },
     { label: "period", edit: true, show: f => f.period, raw: f => f.period, set: (f, v) => { f.period = lc(v); } },
-    Object.assign({ label: "submit by", edit: true }, dated("target")),
-    Object.assign({ label: "due", edit: true }, dated("due")),
-    { label: "status", edit: true, show: f => ({ t: f.status, cls: isDone(f) ? "g" : f.status === "to do" ? "r" : "" }), raw: f => f.status, set: (f, v) => { f.status = lc(v); } },
-    { label: "submitted", edit: true, show: f => f.submitted, raw: f => f.submitted, set: (f, v) => { f.submitted = lc(v); } }
+    { label: "date", edit: true, show: f => { const d = f.done ? f.submitted : f.due; return { t: d ? longDate(d) : "", cls: isLate(f, today) && f.due ? "r" : "" }; },
+      raw: f => { const d = f.done ? f.submitted : f.due; return d ? longDate(d) : ""; }, set: (f, v) => { if (f.done) f.submitted = dateOf(v); else f.due = dateOf(v); } },
+    { label: "note", edit: true, show: f => f.note, raw: f => f.note, set: (f, v) => { f.note = lc(v); } }
   ];
-  const groups = FILING_GROUPS.map(g => {
-    const rows = log.filter(f => f.group === g), left = rows.filter(f => !isDone(f)).length;
-    return { label: g, rows, head: ["", "", "", { t: left ? left + " left" : "all done", cls: left ? "" : "g" }, ""],
-      add: (c, v) => { const f = { group: g, filing: "", period: "", target: "", due: "", status: "to do", submitted: "", notes: "" }; cols[c].set(f, v); if (!f.filing) f.filing = "new filing"; log.push(f); return true; } };
+  const wrap = el("div", "filing-grid");
+  FILING_GROUPS.forEach(g => {
+    const box = el("div"); wrap.append(box);
+    filSel[g] = filSel[g] || { r: -1, c: 1 };
+    const draw = () => { const rows = log.filter(f => f.group === g), left = rows.filter(f => !f.done).length; return sheetGrid({ host: box, cls: "filings", state: filSel[g], render: draw, cols,
+      groups: [{ label: g, rows, head: ["", { t: left ? left + " left" : "all done", cls: left ? "" : "g" }, ""],
+        add: (c, v) => { const f = { group: g, filing: "", period: "", due: "", done: false, submitted: "", note: "", status: "to do" }; cols[c].set(f, v); if (!f.filing) f.filing = "new filing"; log.push(f); return true; } }],
+      rowCls: f => f.done ? "done" : "", rowId: f => String(log.indexOf(f)),
+      changed: save, remove: f => log.splice(log.indexOf(f), 1) }); };
+    draw();
   });
-  sheetGrid({ host: $("#filingList"), cls: "filings", state: filSel, render: renderFilingList, groups, cols,
-    rowCls: f => isDone(f) ? "done" : "", rowId: f => String(log.indexOf(f)), rowTitle: f => f.notes || "",
-    changed: () => { clearTimeout(filSaveTimer); filSaveTimer = setTimeout(saveFilings, 600); renderFilings(); },
-    remove: f => log.splice(log.indexOf(f), 1) });
+  host.replaceChildren(wrap);
 }
 
 // a filing clicked anywhere scrolls to it in the filings section
