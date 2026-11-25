@@ -318,7 +318,7 @@ input.inline { box-sizing: border-box; width: 110px; height: 26px; padding: 0 6p
 .grid.tx td.gut { vertical-align: top; padding: 0 24px 0 0; background: var(--card) !important; overflow: clip; }
 .grid.tx th.gut { padding: 0; }
 .grid.tx .pin { position: sticky; top: var(--th-h, 41px); height: 0; overflow: visible; z-index: 1; }
-.grid.tx .pinbox { padding: 10px 0 14px; background: var(--card); white-space: normal; }
+.grid.tx .pinbox { padding: 4px 0 14px; background: var(--card); white-space: normal; }
 .grid.tx .pinbox .hd { display: block; margin: 0 0 4px; }
 .grid.tx .pinbox .lead { gap: 6px; }
 .grid.tx .pinbox .gap { height: 12px; }
@@ -371,6 +371,11 @@ html.fit .sheet-scroll { max-height: none !important; }
 .grid.tx tr.gaprow td { height: 30px; padding: 0; background: var(--card) !important; background-image: none !important; }
 .grid.tx tr.gaprow.year td { height: 60px; }
 .grid.tx tbody tr.gaprow:hover td { background: var(--card) !important; }
+.grid.tx tr.yearrow td, .grid.tx tbody tr.yearrow:hover td { padding-top: 0; padding-bottom: 0; height: auto; background: var(--card) !important; background-image: none !important; }
+.grid.tx tr.yearrow .pinbox { padding-bottom: 24px; }
+/* while a pop-up is open the page behind it stays put */
+html.noscroll, html.noscroll body { overflow: hidden; }
+.modal, .modal-body { overscroll-behavior: contain; }
 .grid.tx tr.filler td, .grid.tx tbody tr.filler:hover td { padding: 0; background: var(--card) !important; background-image: none !important; }
 .sheet-head .chips { display: flex; flex-wrap: wrap; gap: 8px; flex-basis: 100%; }
 

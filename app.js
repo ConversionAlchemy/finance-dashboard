@@ -1669,9 +1669,9 @@ function openTx(f, title) {
   const filt = Object.assign({}, TX_CLEAR, { entity: ents.length === 1 ? ents[0] : "", entities: ents.length > 1 ? ents : null, from: rg.from, to: rg.to }, f);
   $("#txmTitle").textContent = title; $("#txmCount").textContent = "";
   const show = () => txView({ head: $("#txmHead"), grid: $("#txmGrid"), scroller: $("#txmGrid").closest(".modal-body"), host: $("#txmMore"), tab, f: filt, rebuild: show, key: "modal" });
-  $("#txModal").hidden = false; show();
+  $("#txModal").hidden = false; document.documentElement.classList.add("noscroll"); show();
 }
-function closeTx() { $("#txModal").hidden = true; if (txObs.modal) txObs.modal.disconnect(); buildModel(); if (view === "dashboard") renderDashboard(); }
+function closeTx() { $("#txModal").hidden = true; document.documentElement.classList.remove("noscroll"); if (txObs.modal) txObs.modal.disconnect(); buildModel(); if (view === "dashboard") renderDashboard(); }
 // on the sheet tabs the page fits the window exactly: the table scrolls inside its box and the watermark always shows
 function fitSheet() {
   const sheet = !$("#viewSheet").hidden, sc = $("#sheetScroll");
@@ -1867,10 +1867,14 @@ function txTable({ grid, scroller, host, tab, list, shownCols, bal, cats, entiti
       if (m !== lastM) {
         // a blank row between months, two between years
         if (lastM) { const gap = el("tr", "gaprow" + (y !== lastY ? " year" : "")), td = el("td"); td.colSpan = shownCols.length + 1; gap.append(td); frag.append(gap); }
+        // a new year gets a row of its own for its totals, so the month's rows start level with the month's label
+        if (y !== lastY) {
+          const yr = el("tr", "yearrow"), yg = el("td", "gut"), yb = el("div", "pinbox"), rest = el("td");
+          yb.append(el("b", "hd", y)); figs(yb, y); yg.append(yb); rest.colSpan = shownCols.length; yr.append(yg, rest); frag.append(yr); lastY = y;
+        }
         // the month's label and totals sit at the left beside its rows, pinned while you scroll through it
         gut = el("td", "gut"); gut.rowSpan = 1;
         const pin = el("div", "pin"), box = el("div", "pinbox");
-        if (y !== lastY) { box.append(el("b", "hd", y)); figs(box, y); box.append(el("div", "gap")); lastY = y; }
         box.append(el("b", "hd", MONTHS[+m.slice(5) - 1] + " " + y)); figs(box, m);
         pin.append(box); gut.append(pin); row.prepend(gut); lastM = m; open.push(gut);
       } else gut.rowSpan++;
