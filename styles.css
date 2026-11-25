@@ -532,3 +532,17 @@ main.solo .side-col { display: none; }
 .grid.txlite th { text-align: left; }
 .grid.txlite th.num, .grid.txlite td.num { text-align: right; }
 .grid.txlite td:nth-child(2) { width: 40%; }
+
+/* ---------- retainers ---------- */
+.grid.ret tr.due td, .grid.ret tr.due td span { background: var(--need) !important; }
+.grid.ret th:first-child { width: 45%; }
+.grid.ret th:last-child { width: 30%; }
+.modal-box.retbox { width: min(1100px, 100%); height: auto; max-height: calc(100dvh - 80px); }
+#retForm { padding: 16px 20px 20px; }
+.retform { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+.retform th { text-align: left; font-weight: 400; font-style: italic; padding: 0 10px 8px 0; border-bottom: 1px solid var(--ink); }
+.retform td { padding: 6px 10px 6px 0; }
+.retform input, .retform select { width: 100%; height: 38px; padding: 0 10px; border: 1px solid var(--hair); background-color: var(--card); }
+.retform td:last-child { width: 28px; padding-right: 0; }
+.retform input[type="number"] { -moz-appearance: textfield; }
+#retForm > .box { height: 40px; }

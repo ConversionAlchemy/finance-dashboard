@@ -512,6 +512,7 @@ function renderDashboard() {
   renderCash(rg);
   renderMore();
   renderTasks();
+  renderRetainers();
   renderAttention();
   renderTxPreview();
   buildJump();
@@ -1516,7 +1517,9 @@ function attentionItems() {
     { n: check, text: (check === 1 ? "transaction" : "transactions") + " to categorise", urgent: true, f: { category: "check", from: "", to: "" }, title: "to categorise" },
     { n: wrong, text: (wrong === 1 ? "cost" : "costs") + " paid from the wrong account", f: { only: "wrong" }, title: "paid from the wrong account" },
     { n: noReceipt, text: (noReceipt === 1 ? "cost" : "costs") + " with no receipt", f: { only: "receipt", entities: cos.length > 1 ? cos : null, entity: cos.length === 1 ? cos[0] : "" }, title: "costs with no receipt" }
-  ].filter(i => i.n > 0 || i.urgent).map(i => Object.assign(i, { go: () => openTx(i.f, i.title) }));
+  ].filter(i => i.n > 0 || i.urgent).map(i => Object.assign(i, { go: () => openTx(i.f, i.title) }))
+    .concat(dash.mode === "personal" ? [] : [(() => { const n = retRows().filter(r => r.next.days < 0).length;
+      return { n, text: n === 1 ? "retainer overdue" : "retainers overdue", go: () => { const x = $("#retSec"); window.scrollTo({ top: x.getBoundingClientRect().top + window.scrollY - jumpOffset(), behavior: "smooth" }); } }; })()]);
 }
 function renderAttention() {
   const box = $("#attention"), items = attentionItems().filter(i => i.n > 0);
@@ -1974,6 +1977,103 @@ function txRow(tab, r, cols, cats, entities, accounts, bal, fmt2) {
   });
   return row;
 }
+
+
+/* ---------- retainers: one row per client in the retainers tab; the dashboard works out when each one is next due ---------- */
+const RET_HEAD = ["client", "name in bank or stripe", "amount", "currency", "every", "day"];
+let retList = null, retSaveTimer = null;
+function retLoad() {
+  const t = tabByName("retainers");
+  retList = t ? block(t.display, RET_HEAD).map(([client, match, amount, cur, every, day]) => ({
+    client: String(client || "").trim(), match: String(match || "").trim(), amount: parseFloat(String(amount).replace(/[^\d.]/g, "")) || 0,
+    cur: String(cur || "USD").trim().toUpperCase(), every: parseInt(every) || 1, day: Math.min(31, Math.max(1, parseInt(day) || 1)) })) : [];
+  return retList;
+}
+const retDay = (y, m, day) => { const last = new Date(y, m + 1, 0).getDate(); return new Date(y, m, Math.min(day, last)); };
+// the billing date on or before a date, and the one a number of months after a billing date
+function retOnOrBefore(d, day) { let c = retDay(d.getFullYear(), d.getMonth(), day); if (c > d) c = retDay(d.getFullYear(), d.getMonth() - 1, day); return c; }
+const retAdd = (d, months, day) => retDay(d.getFullYear(), d.getMonth() + months, day);
+// next due: the billing date that the latest payment belongs to (a payment up to 3 days early still counts), plus one period.
+// a payment that covers two months at once just brings the client up to date; it doesn't push the next date further
+function retNext(rt) {
+  const key = lc(rt.match || rt.client); if (!key) return null;
+  const pays = data.rows.filter(r => !r.synthetic && isIncome(r) && lc(r.merchant).includes(key)).map(r => r.date).sort();
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  let next;
+  if (pays.length) { const last = new Date(pays[pays.length - 1] + "T00:00:00"); last.setDate(last.getDate() + 3); next = retAdd(retOnOrBefore(last, rt.day), rt.every, rt.day); }
+  else next = retOnOrBefore(today, rt.day);
+  return { date: next, days: Math.round((next - today) / 864e5) };
+}
+const retWhen = n => (n.days < 0 ? "overdue " + -n.days + (n.days === -1 ? " day" : " days") : n.days === 0 ? "today" : "in " + n.days + (n.days === 1 ? " day" : " days"))
+  + " (" + n.date.getDate() + " " + MONTHS[n.date.getMonth()] + ")";
+function retRows() { return (retList || retLoad()).filter(r => r.client).map(r => Object.assign({ next: retNext(r) }, r)).filter(r => r.next).sort((a, b) => a.next.days - b.next.days); }
+function renderRetainers() {
+  const sec = $("#retSec"), host = $("#retBody"); host.innerHTML = "";
+  sec.hidden = dash.mode === "personal" || !tabByName("transactions"); if (sec.hidden) return;
+  retLoad();
+  const t = el("table", "grid txlite ret"), hd = el("tr"), th = el("thead"), tb = el("tbody");
+  [["client"], ["amount", "num"], ["next"]].forEach(([n, c]) => hd.append(el("th", c || null, n))); th.append(hd); t.append(th, tb);
+  const rows = retRows();
+  rows.forEach(r => { const tr = el("tr", r.next.days < 0 ? "due" : null);
+    tr.append(txt(null, r.client), txt("num", money(r.amount, SYMBOL[r.cur] || "") + (r.every > 1 ? " every " + r.every + " months" : "")), txt(null, retWhen(r.next))); tb.append(tr); });
+  if (!rows.length) { const tr = el("tr"), td = el("td", "empty", "no retainers yet"); td.colSpan = 3; tr.append(td); tb.append(tr); }
+  host.append(t);
+  $("#retEdit").onclick = openRetainers;
+}
+async function saveRetainers() {
+  const rows = retList.filter(r => r.client).map(r => [r.client, r.match, r.amount || "", r.cur, r.every, r.day]);
+  let t = tabByName("retainers");
+  const old = t ? t.display.filter((r, i) => i > 2 && (r || []).some(Boolean)).length : 0;
+  while (rows.length < old) rows.push(["", "", "", "", "", ""]);
+  if (TEST) { if (!t) { t = { name: "retainers", display: [], raw: [], fmt: [] }; book.tabs.push(t); } t.display = [["", "retainers"], [], ["", ...RET_HEAD]].concat(rows.map(r => ["", ...r.map(String)])); t.raw = t.display; return; }
+  status("saving");
+  try {
+    if (!t) {
+      const res = await api(SHEETS + book.id + ":batchUpdate", { method: "POST", body: JSON.stringify({ requests: [{ addSheet: { properties: { title: "retainers" } } }] }) });
+      t = { name: "retainers", sheetId: res.replies[0].addSheet.properties.sheetId, display: [], raw: [], fmt: [] }; book.tabs.push(t);
+    }
+    const rng = quote(t.name) + "!B1:G" + (3 + rows.length);
+    await api(SHEETS + book.id + "/values/" + encodeURIComponent(rng) + "?valueInputOption=USER_ENTERED", { method: "PUT", body: JSON.stringify({ range: rng, majorDimension: "ROWS", values: [["retainers"], [""], RET_HEAD].concat(rows) }) });
+    await refreshTab(t); status("saved");
+  } catch (e) { status(e.expired ? "signed out. click to reconnect, then edit again." : e.message); }
+}
+function retQueue() { clearTimeout(retSaveTimer); retSaveTimer = setTimeout(saveRetainers, 700); }
+function openRetainers() {
+  retLoad(); const form = $("#retForm");
+  const draw = () => {
+    form.innerHTML = "";
+    const t = el("table", "retform"), hd = el("tr");
+    ["client", "name in bank or stripe", "amount", "currency", "every", "day", ""].forEach(n => hd.append(el("th", null, n)));
+    const th = el("thead"); th.append(hd); t.append(th); const tb = el("tbody"); t.append(tb);
+    retList.forEach((r, i) => {
+      const tr = el("tr");
+      const inp = (k, type) => { const td = el("td"), x = el("input"); x.type = type || "text"; x.value = r[k] == null ? "" : r[k]; if (type === "number") { x.min = 1; if (k === "day") x.max = 31; }
+        x.oninput = () => { r[k] = type === "number" ? (parseFloat(x.value) || 0) : x.value; retQueue(); }; td.append(x); return td; };
+      const pick = (k, opts) => { const td = el("td"), x = el("select"); opts.forEach(([v, l]) => x.append(new Option(l, v))); x.value = String(r[k]);
+        x.onchange = () => { r[k] = k === "every" ? parseInt(x.value) : x.value; retQueue(); }; td.append(x); return td; };
+      const del = el("td"), b = el("button", "xbtn"); b.type = "button"; b.setAttribute("aria-label", "remove");
+      b.innerHTML = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg>';
+      b.onclick = () => { retList.splice(i, 1); retQueue(); draw(); }; del.append(b);
+      tr.append(inp("client"), inp("match"), inp("amount", "number"), pick("cur", ["USD", "EUR", "GBP"].map(c => [c, c])),
+        pick("every", [1, 2, 3, 6, 12].map(n => [String(n), n === 1 ? "1 month" : n + " months"])), inp("day", "number"), del);
+      tb.append(tr);
+    });
+    const add = el("button", "box", "add retainer"); add.type = "button";
+    add.onclick = () => { retList.push({ client: "", match: "", amount: 0, cur: "USD", every: 1, day: 1 }); draw(); const ins = form.querySelectorAll("tbody tr:last-child input"); if (ins[0]) ins[0].focus(); };
+    form.append(t, add);
+  };
+  draw();
+  $("#retModal").hidden = false; document.documentElement.classList.add("noscroll");
+}
+function closeRetainers() {
+  if ($("#retModal").hidden) return;
+  $("#retModal").hidden = true; document.documentElement.classList.remove("noscroll");
+  if (retSaveTimer) { clearTimeout(retSaveTimer); saveRetainers(); }
+  renderRetainers(); renderAttention();
+}
+$("#retClose").addEventListener("click", closeRetainers);
+$("#retModal").addEventListener("click", e => { if (e.target.id === "retModal") closeRetainers(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeRetainers(); });
 
 /* ---------- shell ---------- */
 function start() {
