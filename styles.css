@@ -534,7 +534,7 @@ main.solo .side-col { display: none; }
 .grid.txlite td:nth-child(2) { width: 40%; }
 
 /* ---------- retainers ---------- */
-.grid.ret tr.due td, .grid.ret tr.due td span { background: var(--need) !important; }
+.grid.ret tr.due td, .grid.ret tr.due td span { color: var(--rtext); }
 .grid.ret th:first-child { width: 45%; }
 .grid.ret th:last-child { width: 30%; }
 .modal-box.retbox { width: min(1100px, 100%); height: auto; max-height: calc(100dvh - 80px); }
