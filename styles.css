@@ -546,3 +546,5 @@ main.solo .side-col { display: none; }
 .retform td:last-child { width: 28px; padding-right: 0; }
 .retform input[type="number"] { -moz-appearance: textfield; }
 #retForm > .box { height: 40px; }
+/* dropdowns inside boxes: no focus ring (the box clips it to a stray bar on the left) */
+.box > select:focus-visible, .step select:focus-visible, .brand-pick select:focus-visible { outline: 0; }
