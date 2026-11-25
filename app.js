@@ -513,6 +513,8 @@ function renderDashboard() {
   renderMore();
   renderTasks();
   renderAttention();
+  renderTxPreview();
+  buildJump();
 }
 
 function renderSummary(rg) {
@@ -1687,7 +1689,6 @@ addEventListener("resize", () => fitSheet());
 function showView(name) {
   if (!["dashboard", "transactions"].includes(name) || (name === "transactions" && !tabByName("transactions"))) name = "dashboard";
   view = name;
-  [...$("#tabs").children].forEach(b => b.setAttribute("aria-selected", b.dataset.view === name));
   $("#viewDashboard").hidden = name !== "dashboard";
   $("#viewSheet").hidden = name === "dashboard";
   if (name === "dashboard") renderDashboard(); else renderSheet(tabByName(name));
@@ -1806,15 +1807,12 @@ function txView({ head, grid, scroller, host, tab, f, rebuild, key }) {
   const ALL = txCols(c);
   const colBtn = el("button", "box cols icon"); colBtn.type = "button"; colBtn.title = "columns"; colBtn.setAttribute("aria-label", "columns");
   colBtn.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="3.5" width="15" height="13"/><line x1="7.5" y1="3.5" x2="7.5" y2="16.5"/><line x1="12.5" y1="3.5" x2="12.5" y2="16.5"/></svg>';
-  const menu = el("div", "colmenu"); menu.hidden = true; menu.append(el("i", "hd", "columns"));
-  // every column is listed; the ones the table needs are ticked and greyed out, like shopify
-  ALL.forEach(([n]) => {
-    const optional = TX_OPTIONAL.includes(n), lab = el("label", optional ? null : "fixed"), cb = el("input"); cb.type = "checkbox"; cb.checked = !txHidden.has(n); cb.disabled = !optional;
-    cb.onchange = () => { cb.checked ? txHidden.delete(n) : txHidden.add(n); try { localStorage.setItem(COLS_KEY, JSON.stringify([...txHidden])); } catch {} draw(); };
-    lab.append(cb, " " + (n === "amount" ? "original amount" : n)); menu.append(lab);
-  });
-  colBtn.onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; colBtn.setAttribute("aria-expanded", !menu.hidden); };
-  head.onclick = e => { if (!menu.contains(e.target) && !colBtn.contains(e.target)) { menu.hidden = true; colBtn.setAttribute("aria-expanded", false); } };
+  // the columns menu is the browser's own dropdown, laid invisibly over the icon: pick a column to show or hide it
+  const menu = el("select", "colpick"); menu.setAttribute("aria-label", "columns");
+  const fillCols = () => { menu.innerHTML = ""; const h = new Option("columns", ""); h.disabled = true; h.selected = true; menu.append(h);
+    ALL.forEach(([n]) => { const optional = TX_OPTIONAL.includes(n), o = new Option((txHidden.has(n) ? "\u2003 " : "\u2713 ") + (n === "amount" ? "original amount" : n), n); o.disabled = !optional; menu.append(o); }); };
+  fillCols();
+  menu.onchange = () => { const n = menu.value; if (!n) return; txHidden.has(n) ? txHidden.delete(n) : txHidden.add(n); try { localStorage.setItem(COLS_KEY, JSON.stringify([...txHidden])); } catch {} fillCols(); draw(); };
   // export: the transactions as filtered, every column, as a csv file
   const exp = el("button", "box icon"); exp.type = "button"; exp.title = "export"; exp.setAttribute("aria-label", "export"); exp.innerHTML = EXPORT_ICON;
   exp.onclick = () => {
@@ -1982,36 +1980,69 @@ function start() {
   buildModel();
   $("#gate").hidden = true; $("#app").hidden = false; $("#top").hidden = false;
   document.title = book.title; $("#brandName").textContent = book.title;
-  const tabs = $("#tabs"); tabs.innerHTML = "";
-  ["dashboard", "transactions"].filter(n => n === "dashboard" || tabByName(n)).forEach(n => {
-    const b = el("button", null, n); b.type = "button"; b.setAttribute("role", "tab"); b.dataset.view = n;
-    b.onclick = () => { if (n === "transactions") Object.assign(txFilter, TX_CLEAR, modeFilter()); showView(n); };
-    tabs.append(b);
-  });
-  $("#openInSheets").href = "https://docs.google.com/spreadsheets/d/" + encodeURIComponent(book.id) + "/edit";
   try { const v = JSON.parse(localStorage.getItem(VIEW_KEY)) || {}; ["mode", "co", "period"].forEach(k => { if (v[k]) dash[k] = v[k]; }); } catch {}
   if (!PERIODS.some(([k]) => k === dash.period)) dash.period = "fy";
   renderMode();
   applyCurrency();
-  showView(view);
+  showView("dashboard");
 }
 function showGate() { $("#gate").hidden = false; $("#app").hidden = true; $("#top").hidden = true; }
-function menu(open) { $("#brandMenu").hidden = !open; $("#brandButton").setAttribute("aria-expanded", open); }
 
 $("#signIn").addEventListener("click", () => {
   gateError("");
   requestToken(() => { const f = lastFile(); f ? loadBook(f.id) : openPicker(); });
 });
-$("#brandButton").addEventListener("click", e => { e.stopPropagation(); menu($("#brandMenu").hidden); });
-document.addEventListener("click", e => { if (!e.target.closest(".brand")) menu(false); });
-document.addEventListener("keydown", e => { if (e.key === "Escape") menu(false); });
-$("#pickFile").addEventListener("click", () => { menu(false); if (TEST) return; signedIn() ? openPicker() : requestToken(openPicker); });
-$("#openInSheets").addEventListener("click", () => menu(false));
-$("#signOut").addEventListener("click", () => {
-  menu(false);
-  if (auth.token && window.google && google.accounts) google.accounts.oauth2.revoke(auth.token, () => {});
-  auth.token = null; savePass(); book = null; data = null; setLastFile(null); showGate();
+// the menu is the browser's own dropdown: each choice runs, then the box goes back to showing the file's name
+$("#brandPick").addEventListener("change", e => {
+  const v = e.target.value; e.target.value = "";
+  if (v === "open") { if (TEST) return; signedIn() ? openPicker() : requestToken(openPicker); }
+  if (v === "sheets" && book) window.open("https://docs.google.com/spreadsheets/d/" + encodeURIComponent(book.id) + "/edit", "_blank", "noopener");
+  if (v === "signout") {
+    if (auth.token && window.google && google.accounts) google.accounts.oauth2.revoke(auth.token, () => {});
+    auth.token = null; savePass(); book = null; data = null; setLastFile(null); showGate();
+  }
 });
+// refresh: reads the sheet again and redraws in place, keeping where you were on the page
+$("#refreshButton").addEventListener("click", async () => {
+  if (!book) return;
+  const y = window.scrollY, btn = $("#refreshButton"); btn.disabled = true; btn.classList.add("busy");
+  try { if (TEST) start(); else await loadBook(book.id); } finally { btn.disabled = false; btn.classList.remove("busy"); window.scrollTo(0, y); }
+});
+// go to a section: the browser's dropdown lists the sections on the page and follows you as you scroll
+function jumpSections() { return [...document.querySelectorAll("#viewDashboard .sec")].filter(x => !x.hidden && x.offsetParent && x.querySelector("b")); }
+function jumpOffset() { return $("#top").offsetHeight + document.querySelector("#viewDashboard .filters").offsetHeight + 12; }
+function buildJump() {
+  const sel = $("#jumpPick"), cur = sel.value; sel.innerHTML = "";
+  jumpSections().forEach((x, i) => { if (!x.id) x.id = "sec" + i; sel.append(new Option(x.querySelector("b").textContent.trim(), x.id)); });
+  if ([...sel.options].some(o => o.value === cur)) sel.value = cur; syncJump();
+}
+function syncJump() {
+  const sel = $("#jumpPick"), off = jumpOffset() + 4; let on = null;
+  jumpSections().forEach(x => { if (x.getBoundingClientRect().top <= off) on = x; });
+  if (!on) on = jumpSections()[0];
+  if (on && sel.value !== on.id) sel.value = on.id;
+}
+$("#jumpPick").addEventListener("change", e => {
+  const x = document.getElementById(e.target.value); if (!x) return;
+  window.scrollTo({ top: x.getBoundingClientRect().top + window.scrollY - jumpOffset(), behavior: "smooth" });
+});
+let jumpTick = 0; window.addEventListener("scroll", () => { if (jumpTick) return; jumpTick = requestAnimationFrame(() => { jumpTick = 0; if (data) syncJump(); }); }, { passive: true });
+// the latest transactions for the period and companies in view; "see all" opens every one of them in the pop-up
+function renderTxPreview() {
+  const host = $("#txPreview"), tab = tabByName("transactions"); host.innerHTML = "";
+  $("#txSec").hidden = !tab; if (!tab) return;
+  const rg = range(), ents = scopeEntities();
+  const f = Object.assign({}, TX_CLEAR, { entity: ents.length === 1 ? ents[0] : "", entities: ents.length > 1 ? ents : null, from: rg.from, to: rg.to });
+  const list = txMatches(f, tab), t = el("table", "grid txlite"), hd = el("tr");
+  ["date", "merchant", "account", "usd", "category"].forEach(n => hd.append(el("th", n === "usd" ? "num" : null, n)));
+  const th = el("thead"); th.append(hd); t.append(th); const tb = el("tbody"); t.append(tb);
+  list.slice(0, 20).forEach(r => { const tr = el("tr");
+    tr.append(txt(null, r.date), txt(null, r.merchant), txt(null, r.account));
+    const v = txt("num", TX_FMT2(r.v)); v.firstChild.className = r.v < 0 ? "r" : r.v > 0 ? "g" : ""; tr.append(v, txt(null, r.category)); tb.append(tr); });
+  if (!list.length) { const tr = el("tr"), td = el("td", "empty", "no transactions in this period"); td.colSpan = 5; tr.append(td); tb.append(tr); }
+  host.append(t);
+  $("#txSeeAll").textContent = "see all"; $("#txSeeAll").onclick = () => openTx({}, "transactions");
+}
 $("#pdfButton").addEventListener("click", saveStatements);
 $("#txmClose").addEventListener("click", closeTx);
 $("#txModal").addEventListener("click", e => { if (e.target.id === "txModal") closeTx(); });

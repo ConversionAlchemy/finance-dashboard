@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=PT+Sans:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1795599657">
+  <link rel="stylesheet" href="styles.css?v=1795639119">
 </head>
 <body>
 
@@ -25,16 +25,11 @@
 
   <header class="top" id="top" hidden>
     <div class="brand">
-      <button class="brand-button" id="brandButton" type="button" aria-haspopup="true" aria-expanded="false"><b id="brandName">finance</b> ▾</button>
-      <div class="menu" id="brandMenu" hidden>
-        <button type="button" id="pickFile">open file</button>
-        <a id="openInSheets" target="_blank" rel="noopener">open in google sheets</a>
-        <button type="button" id="signOut">sign out</button>
-      </div>
+      <label class="brand-pick"><select id="brandPick" aria-label="menu"><option value="" id="brandName" selected hidden>finance</option><option value="open">open file</option><option value="sheets">open in google sheets</option><option value="signout">sign out</option></select></label>
       <div class="seg mode" id="modePick" role="group" aria-label="business or personal"></div>
       <span class="status" id="status"></span>
     </div>
-    <nav class="tabs" id="tabs" role="tablist"></nav>
+    <button class="box icon" id="refreshButton" type="button" title="refresh" aria-label="refresh"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M16 10a6 6 0 1 1-1.76-4.24"/><path d="M16 3.5v3h-3"/></svg></button>
   </header>
 
   <main id="app" hidden>
@@ -42,7 +37,8 @@
     <section id="viewDashboard" class="view" hidden>
       <div class="dash-main">
         <div class="filters">
-          <b></b>
+          <label class="box" id="jumpBox"><select id="jumpPick" aria-label="go to section"></select></label>
+          <span class="spacer"></span>
           <label class="box" id="coBox"><select id="scopePick" aria-label="company"></select></label>
           <div class="seg step" role="group" aria-label="period"><span id="periodPick" class="contents"></span><button type="button" class="prev" aria-label="previous year">‹</button><label><select id="yearPick" aria-label="year"></select></label><button type="button" class="next" aria-label="next year">›</button></div>
           <button class="box" id="monthChip" type="button" hidden></button>
@@ -53,6 +49,7 @@
         <div class="sec"><b>cash</b><div class="split"><div class="pick" id="cashList"></div><div id="cashDetail"></div></div></div>
         <div class="sec"><div class="sec-label"><b>budget</b><div class="tools" id="budgetTools"></div></div><div id="budgetBody"></div></div>
         <div class="sec"><b>filings</b><div id="filingList"></div></div>
+        <div class="sec" id="txSec"><div class="sec-label"><b>transactions</b><div class="tools"><button class="box" id="txSeeAll" type="button">see all</button></div></div><div id="txPreview"></div></div>
       </div>
     </section>
     <section id="viewSheet" class="view" hidden>
@@ -76,6 +73,6 @@
     </div>
   </div>
   <div id="print" class="print"></div>
-  <script src="app.js?v=1795599657"></script>
+  <script src="app.js?v=1795639119"></script>
 </body>
 </html>
