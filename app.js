@@ -1670,8 +1670,6 @@ function openTx(f, title) {
   $("#txmTitle").textContent = title; $("#txmCount").textContent = "";
   const show = () => txView({ head: $("#txmHead"), grid: $("#txmGrid"), scroller: $("#txmGrid").closest(".modal-body"), host: $("#txmMore"), tab, f: filt, rebuild: show, key: "modal" });
   $("#txModal").hidden = false; show();
-  $("#txmOpen").onclick = () => { Object.assign(txFilter, TX_CLEAR, filt); closeTx(); showView("transactions"); };
-  $("#txmCopy").onclick = () => downloadCSV(exportName(title, scopeName(), filt.from ? periodName() : "all time"), txCSV(txMatches(filt, tab)));
 }
 function closeTx() { $("#txModal").hidden = true; if (txObs.modal) txObs.modal.disconnect(); buildModel(); if (view === "dashboard") renderDashboard(); }
 // on the sheet tabs the page fits the window exactly: the table scrolls inside its box and the watermark always shows

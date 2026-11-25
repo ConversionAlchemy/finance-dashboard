@@ -22,7 +22,9 @@ html.dark {
   --fyline: #55524c;
   color-scheme: dark;
 }
+html.dark { --x: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath d='M1 1l6 6M7 1L1 7' fill='none' stroke='%23e8e6e1' stroke-width='1.3'/%3E%3C/svg%3E"); }
 :root {
+  --x: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath d='M1 1l6 6M7 1L1 7' fill='none' stroke='%2326241f' stroke-width='1.3'/%3E%3C/svg%3E");
   --chev-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2326241f' stroke-width='1.3'/%3E%3C/svg%3E");
   --ink: #26241f;
   --hair: #e8e6e1;
@@ -108,7 +110,7 @@ main[hidden] { display: none; }
 .box { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; background: var(--card); border: 1px solid var(--hair); white-space: nowrap; }
 .box select, .step select { height: 30px; padding: 0 4px; border: 0; background: none; font-weight: 400; cursor: pointer; }
 .box select:hover, .step select:hover, button.box:hover { color: var(--grey); }
-#monthChip::after { content: "  \00d7"; }
+#monthChip::after { content: ""; display: inline-block; width: 8px; height: 8px; margin-left: 12px; background: var(--x) no-repeat center / 8px 8px; vertical-align: middle; }
 .seg { display: inline-flex; height: 32px; background: var(--card); border: 1px solid var(--hair); }
 .seg button { padding: 0 12px; border: 0; border-left: 1px solid var(--hair); background: var(--card); }
 .seg button:first-child { border-left: 0; }
@@ -166,7 +168,7 @@ main[hidden] { display: none; }
 .sheet-head select.box { width: 170px; padding: 0 8px 0 16px; cursor: pointer; }
 .sheet-head select.box:hover, .sheet-head .chip:hover { color: var(--grey); }
 .sheet-head .chip { background: var(--soft); }
-.sheet-head .chip::after { content: "  \00d7"; }
+.sheet-head .chip::after { content: ""; display: inline-block; width: 8px; height: 8px; margin-left: 12px; background: var(--x) no-repeat center / 8px 8px; vertical-align: middle; }
 .count { margin-left: auto; font-style: italic; }
 .sheet-scroll { overflow: auto; max-height: calc(100dvh - var(--top-h) - 24px); padding: 0 20px 20px; background: var(--card); }
 .sheet-head:not(:empty) + .sheet-scroll { max-height: calc(100dvh - var(--top-h) - 90px); }
@@ -256,13 +258,16 @@ input.inline { box-sizing: border-box; width: 110px; height: 26px; padding: 0 6p
 .modal-box { display: flex; flex-direction: column; width: min(1600px, 100%); height: calc(100dvh - 80px); background: var(--card); }
 .modal-hd { display: flex; align-items: center; gap: 14px; padding: 18px 20px 14px; border-bottom: 1px solid var(--hair); }
 .modal-hd i { margin-right: auto; }
+.xbtn { display: inline-grid; place-items: center; width: 28px; height: 28px; margin-left: auto; padding: 0; border: 0; background: none; color: var(--ink); }
+.xbtn svg { width: 12px; height: 12px; }
+.xbtn:hover { color: var(--grey); }
 .modal-body { flex: 1; min-height: 0; overflow: auto; padding: 0 20px 20px; }
 .contents { display: contents; }
 .step .contents button:first-child { border-left: 0; }
 .step .prev { border-left: 1px solid var(--hair) !important; }
 .figs .g, #summary .g { color: var(--gtext); }
 #filingsBox .chip { margin: 4px 0 6px; height: 28px; background: var(--soft); }
-#filingsBox .chip::after { content: "  \00d7"; }
+#filingsBox .chip::after { content: ""; display: inline-block; width: 8px; height: 8px; margin-left: 12px; background: var(--x) no-repeat center / 8px 8px; vertical-align: middle; }
 .chart g.sub.hit { cursor: pointer; }
 /* timeline: a filing chip greys on hover, like every other link */
 .chart g.chip:hover > text { fill: var(--grey) !important; }
