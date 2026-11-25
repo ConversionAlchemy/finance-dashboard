@@ -30,7 +30,7 @@ const dash = { mode: "business", co: "companies", scope: "companies", period: "f
 const COMPANIES = [["companies", "both companies"], ["ie ltd", "irish company"], ["uk ltd", "uk company"]];
 const PERIODS = [["all", "all time"], ["fy", "this year"], ["3m", "last 3 months"], ["1m", "last month"]];
 const FX_FALLBACK = { GBPEUR: 1.17, USDEUR: 0.92, EURGBP: 0.855, USDGBP: 0.78 };
-const TX_CLEAR = { text: "", entity: "", entities: null, category: "", account: "", group: "", only: null, from: "", to: "", rec: "", supplier: "", notIn: null };
+const TX_CLEAR = { text: "", entity: "", entities: null, category: "", account: "", group: "", only: null, from: "", to: "", rec: "", supplier: "", merchant: "", stream: "", notIn: null };
 const txFilter = Object.assign({}, TX_CLEAR);
 // a small square export button; a box exports as a csv of its lines, a copy button copies to the clipboard
 function exportBtn(fn, title = "export") { const b = el("button", "box icon mini"); b.type = "button"; b.title = title; b.setAttribute("aria-label", title); b.innerHTML = EXPORT_ICON; b.onclick = e => { e.stopPropagation(); fn(b); }; return b; }
@@ -742,6 +742,7 @@ function streamMargins(rg) {
 }
 /* revenue and costs in one box: a list in two groups on the left, one chart on the right that follows the selection */
 const BAR_REDS = [RED, "#ff7a57", "#ff9d82", "#ffbba8", "#ffd6ca", "#ffe9e2"];
+const BAR_GREENS = [GREEN, "#2fb92f", "#6fd96f", "#9fe69f", "#c6f0c6", "#e2f8e2"];
 function renderFlow(rg) {
   const list = $("#flowList"), detail = $("#flowDetail");
   const streams = streamMargins(rg), costRows = sel(rg, isCost);
@@ -817,6 +818,17 @@ function renderFlow(rg) {
     if (left > 0.5) slices.push({ label: cl, v: left, c: GREEN, keep: true });
     slices.forEach(x => { x.t = money(x.keep ? x.v : -x.v) + " (" + pct(x.v / (v || 1)) + ")"; });
     centre = v > 0 ? { v: left, label: cl } : null;
+    // a stream on its own: who paid it, the way a cost category shows its suppliers (its margin stays in the list)
+    if (f.key) {
+      const inc = sel(rg, r => isIncome(r) && streamOf(r) === f.key);
+      const parts = groupBy(inc, "merchant").filter(p => p.v > 0.5).sort((a, b) => b.v - a.v);
+      const shown = parts.slice(0, 6), others = parts.slice(6);
+      if (others.length) shown.push({ label: others.length + " others", v: others.reduce((a, p) => a + p.v, 0), others: true });
+      const sum = shown.reduce((a, p) => a + p.v, 0) || 1;
+      slices = shown.map((p, k) => ({ label: p.label, v: p.v, keep: true, c: BAR_GREENS[Math.min(k, 5)], t: money(p.v) + " (" + pct(p.v / sum) + ")",
+        onclick: p.others ? () => openTx({ group: "income", stream: f.key }, f.key) : () => openTx({ group: "income", stream: f.key, merchant: p.label }, p.label) }));
+      centre = { v: v, label: "revenue" };
+    }
   } else {
     const sum = items.total.v;
     slices = items.map(i => ({ label: i.label, v: i.v, c: i.c, onclick: i.onclick, t: money(-i.v) + " (" + pct(i.v / (sum || 1)) + ")" }));
@@ -851,7 +863,7 @@ function donut(host, slices, centre) {
         : "M" + x0 + "," + y0 + "A" + r + "," + r + " 0 " + big + ",1 " + x1 + "," + y1 + "L" + x2 + "," + y2 + "A" + ri + "," + ri + " 0 " + big + ",0 " + x3 + "," + y3 + "Z";
       const [mx, my] = pt((a0 + a1) / 2, (r + ri) / 2);
       // its share written on the slice, when the slice is wide enough to hold it
-      const share = x.v / sum, dark = [GREEN, RED, BAR_REDS[1]].includes(x.c);
+      const share = x.v / sum, dark = [GREEN, RED, BAR_REDS[1], BAR_GREENS[1]].includes(x.c);
       const label = share >= 0.035 ? '<text x="' + mx.toFixed(1) + '" y="' + (my + 5).toFixed(1) + '" text-anchor="middle" font-size="14" font-family="PT Sans, Arial, sans-serif" pointer-events="none" style="fill:' + (dark ? "#fff" : "#26241f") + '">' + pct(share) + "</text>" : "";
       s += '<g class="sub slice' + (x.onclick ? " hit" : "") + '" data-i="' + i + '"><path d="' + d + '" fill-rule="evenodd" style="fill:' + x.c + '"/>' + label
         + '<g class="hov" pointer-events="none">' + hoverBlock(mx, my - 12, [{ t: x.label, c: x.c }, { t: x.t, sub: true }], W, 0, H) + "</g></g>";
@@ -1646,7 +1658,7 @@ function txMatches(f, tab) {
   return data.rows.filter(r => !r.synthetic && (!f.from || (r.date >= f.from && r.date <= f.to)) && (!f.entities || f.entities.includes(r.entity)) && (!f.entity || r.entity === f.entity) && (!f.account || r.account === f.account)
     && (!f.category || r.category === f.category) && (!f.group || r.group === f.group) && (!f.notIn || !f.notIn.includes(r.category))
     && (f.only !== "wrong" || WRONG_ACCOUNT.includes(r.category)) && (f.only !== "receipt" || (receiptExpected(r) && !r.receipt))
-    && (!f.supplier || supplier(r.merchant) === f.supplier)
+    && (!f.supplier || supplier(r.merchant) === f.supplier) && (!f.merchant || r.merchant === f.merchant) && (!f.stream || streamOf(r) === f.stream)
     && (!f.rec || (f.rec === "missing" ? receiptExpected(r) && !r.receipt : f.rec === "linked" ? !!r.receipt : !receiptExpected(r) && !r.receipt))
     && (!q || (r.merchant + " " + lc((tab.display[r.i] || [])[c.reference]) + " " + r.category + " " + r.date).includes(q))).reverse();
 }
