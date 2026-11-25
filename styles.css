@@ -81,6 +81,7 @@ button { cursor: pointer; }
 .menu button, .menu a { padding: 8px 14px; border: 0; background: var(--card); color: var(--ink); text-align: left; text-decoration: none; }
 .menu button:hover, .menu a:hover { color: var(--grey); }
 .status { font-style: italic; white-space: nowrap; }
+.brand .status { margin-left: 20px; }
 .tabs { display: inline-flex; align-self: center; height: 32px; min-width: 0; overflow: visible; background: var(--card); border: 1px solid var(--hair); }
 .tabs button { padding: 0 12px; border: 0; border-left: 1px solid var(--hair); background: var(--card); white-space: nowrap; }
 .tabs button:first-child { border-left: 0; }

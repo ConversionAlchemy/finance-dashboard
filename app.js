@@ -2005,6 +2005,7 @@ $("#brandPick").addEventListener("change", e => {
 // refresh: reads the sheet again and redraws in place, keeping where you were on the page
 $("#refreshButton").addEventListener("click", async () => {
   if (!book) return;
+  if (!TEST && !signedIn()) return requestToken(() => $("#refreshButton").click());
   const y = window.scrollY, btn = $("#refreshButton"); btn.disabled = true; btn.classList.add("busy");
   try { if (TEST) start(); else await loadBook(book.id); } finally { btn.disabled = false; btn.classList.remove("busy"); window.scrollTo(0, y); }
 });
@@ -2049,7 +2050,13 @@ $("#txModal").addEventListener("click", e => { if (e.target.id === "txModal") cl
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#txModal").hidden) closeTx(); });
 let resizeTimer = null;
 window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (data && view === "dashboard") renderDashboard(); }, 150); });
-document.addEventListener("visibilitychange", () => { if (!document.hidden && book && !TEST && !signedIn()) status("signed out. sign out from the menu, then sign in again."); });
+// google's pass lasts an hour; after that the next click anywhere renews it quietly (google's window opens and closes by
+// itself while you're still signed in to google), so you never have to sign in again from the start
+document.addEventListener("click", e => {
+  if (!book || TEST || signedIn() || e.target.closest("#gate") || e.target.closest("#refreshButton")) return;
+  status("reconnecting"); requestToken(() => status(""));
+}, true);
+document.addEventListener("visibilitychange", () => { if (!document.hidden && book && !TEST && !signedIn()) status("click to reconnect"); });
 
 if (TEST) { book = TEST; start(); }
 else {
